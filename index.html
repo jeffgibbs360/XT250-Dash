@@ -492,6 +492,7 @@
     live = { mph, acc: c.accuracy, heading: mph > 0 ? hdg : null,
              altFt: c.altitude != null ? c.altitude * M_TO_FT : null };
     lastPos = [c.latitude, c.longitude];
+    if (!onFix.saved || t - onFix.saved > 30000) { onFix.saved = t; store.set('xt250dash.lastpos', JSON.stringify(lastPos)); }
     render();
     updateMap();
     if (c.accuracy == null || c.accuracy <= 50) updateNav(lastPos, c.accuracy || 99);
@@ -951,8 +952,8 @@
     return v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
-  async function overpass(filters, radius, nameRe) {
-    const [lat, lng] = lastPos;
+  async function overpass(filters, radius, nameRe, here) {
+    const [lat, lng] = here;
     const around = `(around:${radius},${lat.toFixed(5)},${lng.toFixed(5)})`;
     let body;
     if (filters) body = filters.map(f => `nwr[${f}]${around};`).join('');
@@ -961,8 +962,8 @@
       body = `nwr["name"~"${re}",i][~"^(amenity|shop|tourism|leisure|craft)$"~"."]${around};` +
              `nwr["brand"~"${re}",i]${around};`;
     }
-    const query = `[out:json][timeout:20];(${body});out center tags 80;`;
-    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 22000);
+    const query = `[out:json][timeout:45];(${body});out center tags 120;`;
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 50000);
     try {
       const res = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST', body: 'data=' + encodeURIComponent(query),
@@ -996,12 +997,19 @@
   }
   function header(t) { const h = document.createElement('div'); h.className = 'rHead'; h.textContent = t; return h; }
 
-  async function nominatim(q) {
-    let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=${encodeURIComponent(q)}`;
-    if (lastPos) url += `&viewbox=${lastPos[1] - 1.5},${lastPos[0] + 1.5},${lastPos[1] + 1.5},${lastPos[0] - 1.5}`;
+  const MAX_SEARCH_M = 321869;   // 200 miles
+  async function nominatim(q, here) {
+    // fenced to a box around you (bounded=1), then trimmed to a true 200-mile circle
+    const dLat = 2.95, dLng = 2.95 / Math.max(0.2, Math.cos(here[0] * Math.PI / 180));
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=40&bounded=1&countrycodes=us` +
+      `&viewbox=${here[1] - dLng},${here[0] + dLat},${here[1] + dLng},${here[0] - dLat}&q=${encodeURIComponent(q)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     const j = await res.json();
-    return j.map(x => ({ lat:+x.lat, lng:+x.lon, name: x.name || x.display_name.split(',')[0], addr: x.display_name }));
+    return j.map(x => {
+      const parts = x.display_name.split(',').map(t => t.trim());
+      return { lat:+x.lat, lng:+x.lon, name: x.name || parts[0], addr: parts.slice(x.name ? 1 : 1, 4).join(', '),
+               d: haversine(LL(...here), LL(+x.lat, +x.lon)) };
+    }).filter(it => it.d <= MAX_SEARCH_M);
   }
 
   let searchSeq = 0;
@@ -1016,33 +1024,42 @@
     }
     const seq = ++searchSeq;
     const cat = catFilters(q);
-    box.innerHTML = `<div class="rItem dim">${lastPos ? 'Searching near you…' : 'Searching… (no GPS yet, so results aren’t sorted by distance)'}</div>`;
+    let here = lastPos, stale = false;
+    if (!here) { try { here = JSON.parse(store.get('xt250dash.lastpos') || 'null'); stale = !!here; } catch (e) {} }
+    if (!here) { box.innerHTML = '<div class="rItem dim">Waiting for GPS so I can search near you…</div>'; return; }
+    const status = t => { if (seq === searchSeq) box.innerHTML = `<div class="rItem dim">${t}</div>`; };
+    status('Searching near you…');
 
     let near = [], addrs = [], nearErr = null;
     const nearJob = (async () => {
-      if (!lastPos) return;
-      try {
-        const term = cat ? null : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        near = await overpass(cat && cat.filters, 8000, term);
-        if (near.length < 5) near = await overpass(cat && cat.filters, 30000, term);
-      } catch (e) { nearErr = e; }
+      const term = cat ? null : q.replace(/[.*+?^${}()|[\]\\"']/g, '.');   // special characters match anything
+      // widen the circle until there are enough hits, up to 200 miles
+      for (const radius of [8000, 40000, 120000, MAX_SEARCH_M]) {
+        try { near = await overpass(cat && cat.filters, radius, term, here); }
+        catch (e) { nearErr = e; break; }
+        if (near.length >= (cat ? 5 : 3)) break;
+        if (radius < MAX_SEARCH_M) status(`Searching farther out (${Math.round(radius * 3 / 1609.34)} mi)…`);
+      }
     })();
-    const addrJob = cat ? Promise.resolve() : nominatim(q).then(x => { addrs = x; }).catch(() => {});
+    const addrJob = cat ? Promise.resolve() : nominatim(q, here).then(x => { addrs = x; }).catch(() => {});
     await Promise.all([nearJob, addrJob]);
     if (seq !== searchSeq) return;   // a newer search started
 
+    // one list, nearest first, duplicates (same name within ~150 m) removed
+    const all = [];
+    near.concat(addrs).sort((a, b) => a.d - b.d).forEach(it => {
+      if (it.d > MAX_SEARCH_M) return;
+      if (all.some(x => x.name.toLowerCase() === it.name.toLowerCase() && haversine(LL(x.lat, x.lng), LL(it.lat, it.lng)) < 150)) return;
+      all.push(it);
+    });
     box.innerHTML = '';
-    if (near.length) {
-      box.appendChild(header(cat ? `Nearby · ${near.length > 25 ? 'closest 25' : near.length + ' found'}` : 'Nearby matches'));
-      near.slice(0, 25).forEach(it => box.appendChild(resultButton(it)));
-    }
-    if (addrs.length) {
-      box.appendChild(header('Addresses & places'));
-      addrs.forEach(it => box.appendChild(resultButton(it)));
-    }
-    if (!near.length && !addrs.length) {
-      box.innerHTML = `<div class="rItem dim">${nearErr ? 'Search failed. Check your signal and try again.' :
-        cat ? 'Nothing found within about 20 miles.' : 'No results. Try a category like “food” or “gas”, or add the city.'}</div>`;
+    if (all.length) {
+      const shown = all.slice(0, 30);
+      box.appendChild(header(`Within 200 miles · nearest first${all.length > 30 ? ' · closest 30' : ''}${stale ? ' · from last known spot' : ''}`));
+      shown.forEach(it => box.appendChild(resultButton(it)));
+    } else {
+      box.innerHTML = `<div class="rItem dim">${nearErr && !addrs.length ? 'Search failed. Check your signal and try again.' :
+        'Nothing found within 200 miles. Try a different spelling, a category like “food”, or include the street.'}</div>`;
     }
   }
 
