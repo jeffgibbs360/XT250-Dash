@@ -666,7 +666,7 @@
     if (!nav || routing) return;
     routing = true; nav.lastRouteAt = Date.now();
     const myNav = nav;
-    if (!nav.route) showNav('…', '', 'Finding route…', '');
+    if (!nav.route) showNav('…', '', 'Finding route…', nav.lastErr ? 'Last try failed: ' + nav.lastErr : '');
     try {
       const rt = await fetchRoute(p);
       if (nav !== myNav) return;
@@ -678,6 +678,7 @@
     } catch (e) {
       if (nav === myNav) {
         const kind = e.kind || 'net';
+        nav.lastErr = (e.name === 'AbortError' ? 'timed out (no answer in 20 s)' : (e.message || String(e))) + (e.kind ? '' : ' [' + (e.name || 'error') + ']');
         if (kind === 'nokey' || kind === 'badkey') {
           nav.stuck = true;
           showNav('!', 'Key needed', kind === 'badkey' ? 'GraphHopper rejected the key' : 'Back roads needs a GraphHopper key', 'Tap NAV → BACK ROADS KEY');
@@ -689,7 +690,7 @@
         } else if (kind === 'limit') {
           nav.stuck = true;
           showNav('!', 'Limit reached', "GraphHopper's free daily limit is used up", 'Tap NAV → ROAD or STRAIGHT');
-        } else if (!nav.route) showNav('!', 'No route', nav.mode === 'back' ? 'GraphHopper: ' + e.message : 'No signal, or no road there. Retrying…', 'Retrying… or tap NAV → Straight line');
+        } else if (!nav.route) showNav('!', 'No route', nav.mode === 'back' ? 'GraphHopper: ' + nav.lastErr : 'No signal, or no road there. Retrying…', 'Retrying every 15 s · or tap NAV → Straight line');
         else showHint('Reroute failed, retrying');
       }
     } finally { routing = false; }
