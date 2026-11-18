@@ -76,7 +76,6 @@
   body.mapMode .main { display:none; }
   body.mapMode .mapWrap { display:block; }
   #map { position:absolute; inset:0; background:#1a1a1a; }
-  #map.darkTiles .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
   .ov { position:absolute; z-index:500; background:rgba(0,0,0,.78); color:#fff; border-radius:14px; }
   .mapSpeed { left:10px; top:10px; padding:6px 16px 8px; text-align:center; }
   .mapSpeed .num { font-size:60px; font-weight:900; line-height:1; }
@@ -87,7 +86,7 @@
   #layerBtn { top:10px; }
   #recenterBtn { bottom:24px; background:var(--accent); color:#000; }
   .mapMsg { left:50%; top:50%; transform:translate(-50%,-50%); padding:14px 18px; font-size:17px; font-weight:700; text-align:center; }
-  .leaflet-control-attribution { font-size:9px !important; }
+  .maplibregl-ctrl-attrib { font-size:9px !important; }
   .topBtns { display:flex; gap:8px; }
 
   /* navigation */
@@ -268,63 +267,132 @@
 
   const save = () => { store.set(STORE_KEY, JSON.stringify(trip)); store.set(TRACK_KEY, JSON.stringify(track)); };
 
-  // ---------- map ----------
+  // ---------- map (MapLibre GL: supports tilt + rotation for navigation view) ----------
   const LAYERS = [
-    { name:'STREET', url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', dark:true,
-      opt:{ maxZoom:19, attribution:'&copy; OpenStreetMap contributors' } },
-    { name:'TOPO', url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', dark:false,
-      opt:{ maxZoom:17, subdomains:'abc', attribution:'&copy; OpenStreetMap contributors, SRTM | &copy; OpenTopoMap (CC-BY-SA)' } },
-    { name:'SAT', url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', dark:false,
-      opt:{ maxZoom:19, attribution:'Tiles &copy; Esri, Maxar, Earthstar Geographics' } },
+    { name:'STREET', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], maxzoom:19, dark:true,
+      attr:'&copy; OpenStreetMap contributors' },
+    { name:'TOPO', tiles:['a','b','c'].map(sub => 'https://' + sub + '.tile.opentopomap.org/{z}/{x}/{y}.png'), maxzoom:17, dark:false,
+      attr:'&copy; OpenStreetMap contributors, SRTM | &copy; OpenTopoMap (CC-BY-SA)' },
+    { name:'SAT', tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], maxzoom:19, dark:false,
+      attr:'Tiles &copy; Esri, Maxar, Earthstar Geographics' },
   ];
-  let leafletFailed = false;
-  let map = null, tiles = null, trackLine = null, me = null, follow = true, lastPos = null;
+  let mapLibFailed = false, mapReady = false;
+  let map = null, me = null, meAdded = false, follow = true, lastPos = null, camBearing = 0;
   let layerIdx = Math.min(parseInt(store.get(LAYER_KEY) || '0', 10) || 0, LAYERS.length - 1);
-  const ME_SVG = '<svg viewBox="0 0 44 44" width="44" height="44"><g id="meRot"><path id="meArrow" d="M22 1 L30 15 L14 15 Z" fill="#1e90ff" stroke="#fff" stroke-width="2"/><circle cx="22" cy="22" r="10" fill="#1e90ff" stroke="#fff" stroke-width="3"/></g></svg>';
+  const ME_SVG = '<svg viewBox="0 0 44 44" width="44" height="44"><path id="meArrow" d="M22 1 L30 15 L14 15 Z" fill="#1e90ff" stroke="#fff" stroke-width="2"/><circle cx="22" cy="22" r="10" fill="#1e90ff" stroke="#fff" stroke-width="3"/></svg>';
+  const EMPTY_FC = { type:'FeatureCollection', features:[] };
+  const lineFeat = coords => ({ type:'Feature', properties:{}, geometry:{ type:'LineString', coordinates: coords } });
+  const toLngLat = p => [p[1], p[0]];
 
+  function tilePaint(i) {
+    const inv = !document.body.classList.contains('day') && LAYERS[i].dark;  // night mode: invert the street map
+    return { 'raster-brightness-min': inv ? 0.9 : 0, 'raster-brightness-max': inv ? 0.08 : 1,
+             'raster-hue-rotate': inv ? 180 : 0, 'raster-saturation': inv ? -0.3 : 0 };
+  }
   function darkTiles() {
-    if (map) $('map').classList.toggle('darkTiles', !document.body.classList.contains('day') && LAYERS[layerIdx].dark);
+    if (!mapReady || !map.getLayer('tiles')) return;
+    const p = tilePaint(layerIdx);
+    Object.keys(p).forEach(k => map.setPaintProperty('tiles', k, p[k]));
   }
   function setLayer(i) {
     layerIdx = i; store.set(LAYER_KEY, String(i));
     $('layerBtn').textContent = LAYERS[i].name;
-    if (!map) return;
-    if (tiles) map.removeLayer(tiles);
-    tiles = L.tileLayer(LAYERS[i].url, LAYERS[i].opt).addTo(map);
-    if (map.getZoom() > LAYERS[i].opt.maxZoom) map.setZoom(LAYERS[i].opt.maxZoom);
-    darkTiles();
+    if (!mapReady) return;
+    if (map.getLayer('tiles')) map.removeLayer('tiles');
+    if (map.getSource('tiles')) map.removeSource('tiles');
+    map.addSource('tiles', { type:'raster', tiles: LAYERS[i].tiles, tileSize:256, maxzoom: LAYERS[i].maxzoom, attribution: LAYERS[i].attr });
+    map.addLayer({ id:'tiles', type:'raster', source:'tiles', paint: tilePaint(i) }, 'route');
   }
+  function setTrack() {
+    if (!mapReady) return;
+    map.getSource('track').setData({ type:'Feature', properties:{}, geometry:{ type:'MultiLineString',
+      coordinates: track.filter(seg => seg.length > 1).map(seg => seg.map(toLngLat)) } });
+  }
+  function setDirect(p) {
+    if (!mapReady || !nav || nav.mode !== 'direct') return;
+    map.getSource('direct').setData(lineFeat([toLngLat(p), [nav.dest.lng, nav.dest.lat]]));
+  }
+  function manualMove() { follow = false; $('recenterBtn').classList.remove('hidden'); }
+
   function ensureMap() {
-    if (map) { map.invalidateSize(); updateMap(); return; }
-    if (!window.L) { if (leafletFailed) $('mapMsg').classList.remove('hidden'); return; } // else still loading
+    if (map) { map.resize(); updateMap(true); return; }
+    if (!window.maplibregl) { if (mapLibFailed) $('mapMsg').classList.remove('hidden'); return; } // else still loading
     $('mapMsg').classList.add('hidden');
-    map = L.map('map', { zoomControl:false, attributionControl:true })
-      .setView(lastPos || [39.8, -98.6], lastPos ? 16 : 4);
-    setLayer(layerIdx);
-    trackLine = L.polyline(track, { color:'#ffb000', weight:5, opacity:.95 }).addTo(map);
-    me = L.marker([0, 0], { icon: L.divIcon({ className:'', html: ME_SVG, iconSize:[44,44], iconAnchor:[22,22] }), interactive:false });
-    map.on('dragstart', () => { follow = false; $('recenterBtn').classList.remove('hidden'); });
-    map.on('contextmenu', e => pickDest({ lat: e.latlng.lat, lng: e.latlng.lng, name: 'Dropped pin' }));
-    drawNav();
-    updateMap();
+    map = new maplibregl.Map({
+      container: 'map',
+      style: { version: 8, sources: {}, layers: [{ id:'bg', type:'background', paint:{ 'background-color':'#1a1a1a' } }] },
+      center: lastPos ? toLngLat(lastPos) : [-98.6, 39.8], zoom: lastPos ? 16 : 3,
+      attributionControl: false, maxPitch: 70
+    });
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    const el = document.createElement('div');
+    el.style.cssText = 'width:44px;height:44px';
+    el.innerHTML = ME_SVG;
+    me = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' });
+
+    map.on('load', () => {
+      ['route', 'direct', 'track', 'dest'].forEach(id => map.addSource(id, { type:'geojson', data: EMPTY_FC }));
+      const round = { 'line-join':'round', 'line-cap':'round' };
+      map.addLayer({ id:'route', type:'line', source:'route', layout: round, paint:{ 'line-color':'#1e90ff', 'line-width':9, 'line-opacity':.85 } });
+      map.addLayer({ id:'direct', type:'line', source:'direct', layout: round, paint:{ 'line-color':'#e0245e', 'line-width':4, 'line-dasharray':[2, 2] } });
+      map.addLayer({ id:'track', type:'line', source:'track', layout: round, paint:{ 'line-color':'#ffb000', 'line-width':5, 'line-opacity':.95 } });
+      map.addLayer({ id:'dest', type:'circle', source:'dest', paint:{ 'circle-radius':10, 'circle-color':'#e0245e', 'circle-stroke-color':'#fff', 'circle-stroke-width':3 } });
+      mapReady = true;
+      setLayer(layerIdx);
+      setTrack();
+      drawNav();
+      updateMap(true);
+    });
+    // user moving the map stops auto-follow (programmatic camera moves have no originalEvent)
+    map.on('dragstart', manualMove);
+    map.on('rotatestart', e => { if (e.originalEvent) manualMove(); });
+    map.on('pitchstart', e => { if (e.originalEvent) manualMove(); });
+    map.on('zoomstart', e => { if (e.originalEvent && nav) manualMove(); });
+    // long-press (touch) or right-click to drop a destination pin
+    map.on('contextmenu', e => pickDest({ lat: e.lngLat.lat, lng: e.lngLat.lng, name: 'Dropped pin' }));
+    const box = map.getCanvasContainer();
+    let lpTimer = null, lpAt = null;
+    box.addEventListener('touchstart', e => {
+      clearTimeout(lpTimer);
+      if (e.touches.length !== 1) return;
+      lpAt = [e.touches[0].clientX, e.touches[0].clientY];
+      lpTimer = setTimeout(() => {
+        const rc = box.getBoundingClientRect();
+        const ll = map.unproject([lpAt[0] - rc.left, lpAt[1] - rc.top]);
+        pickDest({ lat: ll.lat, lng: ll.lng, name: 'Dropped pin' });
+      }, 650);
+    }, { passive: true });
+    box.addEventListener('touchmove', e => {
+      if (lpAt && Math.hypot(e.touches[0].clientX - lpAt[0], e.touches[0].clientY - lpAt[1]) > 10) clearTimeout(lpTimer);
+    }, { passive: true });
+    ['touchend', 'touchcancel'].forEach(ev => box.addEventListener(ev, () => clearTimeout(lpTimer), { passive: true }));
   }
-  function updateMap() {
-    if (!map || !document.body.classList.contains('mapMode') || !lastPos) return;
-    if (!map.hasLayer(me)) { me.addTo(map); map.setView(lastPos, 16); }
-    me.setLatLng(lastPos);
-    const g = document.getElementById('meRot'), arrow = document.getElementById('meArrow');
-    if (g && arrow) {
-      const h = live.heading;
-      arrow.style.display = h == null ? 'none' : '';
-      g.setAttribute('transform', h == null ? '' : `rotate(${h} 22 22)`);
+
+  // Camera: north-up flat map normally; heading-up, tilted, zoomed-in view while navigating.
+  function updateMap(force) {
+    if (!mapReady || !document.body.classList.contains('mapMode') || !lastPos) return;
+    const ll = toLngLat(lastPos);
+    if (!meAdded) { me.setLngLat(ll).addTo(map); meAdded = true; follow = true; force = true; }
+    me.setLngLat(ll);
+    const h = live.heading, arrow = document.getElementById('meArrow');
+    if (arrow) arrow.style.display = h == null ? 'none' : '';
+    if (h != null) { me.setRotation(h); camBearing = h; }
+    if (!follow && !force) return;
+    const navOn = nav && !nav.arrived;
+    if (navOn) {
+      const mph = live.mph, H = $('map').clientHeight || 600;
+      map.easeTo({ center: ll, bearing: camBearing, pitch: 60, zoom: mph > 45 ? 16.4 : mph > 25 ? 16.9 : 17.5,
+                   padding: { top: H * 0.45, bottom: 0, left: 0, right: 0 }, duration: force ? 700 : 950, easing: t => t });
+    } else {
+      map.easeTo({ center: ll, bearing: 0, pitch: 0, zoom: force ? Math.max(map.getZoom(), 16) : map.getZoom(),
+                   padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: force ? 700 : 800 });
     }
-    if (follow) map.panTo(lastPos, { animate:true, duration:0.5 });
   }
   function setView(mapMode) {
     document.body.classList.toggle('mapMode', mapMode);
     $('viewBtn').textContent = mapMode ? 'DASH' : 'MAP';
     store.set(VIEW_KEY, mapMode ? 'map' : 'dash');
-    if (mapMode) setTimeout(ensureMap, 30);
+    if (mapMode) { follow = true; $('recenterBtn').classList.add('hidden'); setTimeout(ensureMap, 30); }
   }
 
   function haversine(a, b) {
@@ -410,7 +478,7 @@
         if (!last || haversine({ latitude:last[0], longitude:last[1] }, c) > 8) {
           seg.push(pt);
           if (trackCount() > MAX_TRACK_PTS) { track[0].shift(); if (!track[0].length && track.length > 1) track.shift(); }
-          if (trackLine) trackLine.setLatLngs(track);
+          setTrack();
         }
       }
     }
@@ -435,6 +503,7 @@
   }
 
   function startGps() {
+    store.set('xt250dash.gpsOn', '1');
     if (!('geolocation' in navigator)) { $('startMsg').textContent = 'This browser has no GPS access.'; return; }
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
     watchId = navigator.geolocation.watchPosition(onFix, onGeoError,
@@ -481,7 +550,6 @@
   const ordinal = n => n + ((n % 10 === 1 && n % 100 !== 11) ? 'st' : (n % 10 === 2 && n % 100 !== 12) ? 'nd' : (n % 10 === 3 && n % 100 !== 13) ? 'rd' : 'th');
   const lcFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
   let nav = null, routing = false, pending = null, pendingBack = null;
-  let routeLine = null, directLine = null, destMarker = null;
   let voiceOn = store.get(VOICE_KEY) !== 'off';
 
   function fmtDist(m) {
@@ -537,7 +605,7 @@
     $('navDist').textContent = dist;
     $('navInstr').textContent = text;
     $('navRemain').textContent = remain || '';
-    if (map) setTimeout(() => map.invalidateSize(), 50);
+    if (map) setTimeout(() => map.resize(), 50);
   }
 
   class RouteError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
@@ -746,7 +814,7 @@
       showNav(h != null ? '↑' : '◎', fmtDist(toDest),
               h != null ? `Straight line to ${d.name}` : `Head ${cardinalFull(b)} · ${d.name}`,
               `Destination is ${cardinalFull(b)} of you`, h != null ? (b - h + 360) % 360 : null);
-      if (directLine) directLine.setLatLngs([p, [d.lat, d.lng]]);
+      setDirect(p);
       return;
     }
 
@@ -780,18 +848,17 @@
   }
 
   function drawNav() {
-    if (!map) return;
-    [routeLine, directLine, destMarker].forEach(l => { if (l) map.removeLayer(l); });
-    routeLine = directLine = destMarker = null;
-    if (!nav) return;
-    const dll = [nav.dest.lat, nav.dest.lng];
+    if (!mapReady) return;
+    const src = id => map.getSource(id);
+    if (!nav) { ['route', 'direct', 'dest'].forEach(id => src(id).setData(EMPTY_FC)); return; }
+    const d = [nav.dest.lng, nav.dest.lat];
+    src('dest').setData({ type:'Feature', properties:{}, geometry:{ type:'Point', coordinates: d } });
     if (nav.mode !== 'direct' && nav.route) {
-      routeLine = L.polyline(nav.route.pts, { color: nav.mode === 'back' ? '#27ae60' : '#1e90ff', weight:8, opacity:.8 }).addTo(map);
-    } else if (nav.mode === 'direct') {
-      directLine = L.polyline([lastPos || dll, dll], { color:'#e0245e', weight:4, dashArray:'8 10' }).addTo(map);
-    }
-    if (trackLine) trackLine.bringToFront();
-    destMarker = L.circleMarker(dll, { radius:10, color:'#fff', weight:3, fillColor:'#e0245e', fillOpacity:1 }).addTo(map);
+      src('route').setData(lineFeat(nav.route.pts.map(toLngLat)));
+      map.setPaintProperty('route', 'line-color', nav.mode === 'back' ? '#27ae60' : '#1e90ff');
+    } else src('route').setData(EMPTY_FC);
+    if (nav.mode === 'direct') src('direct').setData(lineFeat([lastPos ? toLngLat(lastPos) : d, d]));
+    else src('direct').setData(EMPTY_FC);
   }
 
   function saveNav() { store.set(NAV_KEY, nav ? JSON.stringify({ dest: nav.dest, mode: nav.mode }) : ''); }
@@ -803,14 +870,15 @@
     showNav('…', '', lastPos ? (mode === 'direct' ? '' : mode === 'back' ? 'Finding back-road route…' : 'Finding route…') : 'Waiting for GPS…', '');
     if (watchId == null) startGps();
     drawNav();
+    follow = true; $('recenterBtn').classList.add('hidden'); updateMap(true);
     if (lastPos) updateNav(lastPos, 10);
   }
 
   function endNav() {
-    nav = null; saveNav(); drawNav();
+    nav = null; saveNav(); drawNav(); updateMap(true);
     try { speechSynthesis.cancel(); } catch (e) {}
     $('navBar').classList.add('hidden');
-    if (map) setTimeout(() => map.invalidateSize(), 50);
+    if (map) setTimeout(() => map.resize(), 50);
   }
 
   // ----- destination picking -----
@@ -913,7 +981,7 @@
   let holdTimer = null;
   const resetBtn = $('resetBtn');
   const holdStart = e => { e.preventDefault(); holdTimer = setTimeout(() => {
-      holdTimer = null; trip = { ...EMPTY }; lastGood = null; track = [[]]; if (trackLine) trackLine.setLatLngs(track); save(); render(); showHint('Trip reset');
+      holdTimer = null; trip = { ...EMPTY }; lastGood = null; track = [[]]; setTrack(); save(); render(); showHint('Trip reset');
       if (navigator.vibrate) navigator.vibrate(50);
     }, 800); };
   const holdEnd = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; showHint('Hold to reset trip'); } };
@@ -941,25 +1009,26 @@
   $('layerBtn').addEventListener('click', () => setLayer((layerIdx + 1) % LAYERS.length));
   $('recenterBtn').addEventListener('click', () => {
     follow = true; $('recenterBtn').classList.add('hidden');
-    if (map && lastPos) map.setView(lastPos, Math.max(map.getZoom(), 15));
+    updateMap(true);
   });
-  window.addEventListener('resize', () => { if (map) setTimeout(() => map.invalidateSize(), 100); });
+  window.addEventListener('resize', () => { if (map) setTimeout(() => { map.resize(); updateMap(true); }, 150); });
   $('layerBtn').textContent = LAYERS[layerIdx].name;
   // load the map library in the background so the dash still opens instantly with no signal
-  (function loadLeaflet() {
+  (function loadMapLib() {
     const css = document.createElement('link');
-    css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    css.rel = 'stylesheet'; css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
     document.head.appendChild(css);
     const js = document.createElement('script');
-    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
     js.onload = () => { if (document.body.classList.contains('mapMode')) ensureMap(); };
-    js.onerror = () => { leafletFailed = true; if (document.body.classList.contains('mapMode')) $('mapMsg').classList.remove('hidden'); };
+    js.onerror = () => { mapLibFailed = true; if (document.body.classList.contains('mapMode')) $('mapMsg').classList.remove('hidden'); };
     document.head.appendChild(js);
   })();
   if (store.get(VIEW_KEY) === 'map') setView(true);
 
   $('clock').textContent = fmtClock(new Date());
   render();
+  if (store.get('xt250dash.gpsOn') === '1') startGps(); // skip the TURN ON GPS screen after the first time
 })();
 </script>
 </body>
