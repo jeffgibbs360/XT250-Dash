@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>XT250 Dash</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="XT250 Dash">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%20%22XT250%20Dash%22%2C%20%22short_name%22%3A%20%22XT250%20Dash%22%2C%20%22display%22%3A%20%22standalone%22%2C%20%22background_color%22%3A%20%22%23000000%22%2C%20%22theme_color%22%3A%20%22%23000000%22%2C%20%22start_url%22%3A%20%22./%22%2C%20%22icons%22%3A%20%5B%7B%22src%22%3A%20%22data%3Aimage/png%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAJlElEQVR42u2dW0gUbRjHZ8bDZmZ2Uba5qajY8cJIRYrSComCiK/sIggTjV2sqyhCqUjSTlaSQok3ZeZF0VFDLVoINErN1jaxmwgqITroUtumbrPafBfCfvO9u6676%2B7MOzv/350z74yz7/72ed7TzDAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJQFq9pPLjT7Uk3/QA6oAF1UIkfAhVCbKCycgCWhL4eMToSqJSy0gCKhKQe1WoSGIiy0gCKhI4fitFCuIhzMkIzMyoyMjAwFXXA4tJCYST9MJhMiB8z4L2y4KoLIQakWPqX/YFwG/SGEVY8ZAWwM%2BnphRNggoNYPNuTNCGoHwZuL9GwGzX6woaqFxJ1GD9fsjRx0KsKGnhkyjiW4Xrz3ZlDoBxsyZlAyviQIAsuyzg/iqxxU%2BcHCjMCa8d8fLawfZlDlB6t0M6gakP6fHM7MkpmpUD9Y5ZpB2zyFWzNYlvV7yEt2PziYIQH%2Bfc2yj6IqbOKNWjM8hA3KR7roTSu%2Bhg1qA8a0cvgdD2S0ioMZUprhx5ctY3LhYEYwzAhsMJDLDw6NjKBcMMsqcTKFCjlC5lZEnxLKTPyQJXhwMEMpXVzp/eCQTWQJG4rILxy1YUM9N7Z774fEwYPDUlAZwwZD97Aph4QiTfdVicmFQ0KRrPuquOTCIWbQk1Boix8cWhuMYu%2BMUlfkUHPYoDB4cAgbCB4KiBwIG7QFD46SsKHOZznO0I9gBw8O3wTlo15YJggz1CcHcoqiMwsiB8IGxXIgbKjxvpXQGN6gP2wEL7MgrQBa5VDDWi/lZhZEDukWbSByhPh8Cp2dlCA1OzjkFMrboSq9HRKgQYruK%2BQAIUc4qsCbvokKw0awIoc3XRV6WqOCIFDea/WmTRqMDguHgKHQ7ivaHBjmghx0m6Fah9BbAZBjZsFAncEDkQNADgA5AOQAkIOhZVkGhs8BgBw%2BBgMMn8MPmAE5fPnu1WxGEF%2BpoaxZe9cxUMXdthSMpaZY7IMggbQCIAeAHACv8QIh%2BRovPHWDUf5dcUgrgFY5kFlofu8wIgeQQw40O5R%2BG75S32WPnIK0AkJXDi8zC4KH32EjqI92QeQAkANQKAcyi0JzCl2RA35Q0kmRVA4vgwfGRXyKBxI8ZTAcL/Ci1g/ZQwgrb9aAFv6lGGkeToqH1NIeQmR8SC0rS5MTWswkikimCyd9tIAZofEycwAAoIGwsLCenh5BhM1mS0lJcVtYq9VaLBZx4Xfv3s2ePfv9%2B/eCv2zbto1hGI1Gk5WVZTAY6uvrnz179uHDB5vNNj4%2BPjIy8vnzZ6PRWF5enpyc7OGDDAwMePkfMzMzPbckLl68%2BPr16%2B/fv/M8/%2BXLl56enoqKiqVLl6rRj2XLlo2NjYmrr6Ojw%2B0NZy0tLeJiExMTa9euZRhm5nLU1NRMW3J8fLympkaj0QRJjpiYmBs3bvz9%2B9ftUQ6Ho7q6OjxcfbckHjp0iKiLgwcPEmX27t1LlKmqqprcJY0ck7S1tXEcF3A5YmNju7u7pz22paUlMjJSXXJwHNfZ2SmuhdHR0SVLljgLxMfH//jxQ1xgYGDA%2BSOWUg5BEEpKSgIuR1NTk5eHnzx5UnXBIzU19ffv3%2BJa6OrqCgsLm9zb1tZGxNhpx5Lr6%2BuJap0zZ85UhSflsNlsV69ezc/PT0hI0Gg0SUlJer3%2B69evxHnMZrNnOe7evevTZ8/JySH%2BRWtr6/LlyzUaTUZGBhFReJ6fqk0Wyhw4cICoo9LSUoZhiouL/fj1%2BCTHsWPHSktL3RZITU0dGRkhTuXa8piJHLdu3RKf/OPHj1FRUc69cXFxNptNXODs2bOMCp96YDQaxbVgt9u3bNny8%2BdP8ca%2Bvr6IiIjAyuHTlycIglarDZQcs2bNstvt4pOfOXOGKHPz5k3CHvXdKysIxcXFv379cm7RaDTt7e2xsbHOLTzPFxYWOhwOKS/MYrGI/3Q4HENDQx7KZ2dnm0wmq9XK8/zQ0FBfX19dXd26devcFk5PTyfiUE9PD1GG2JKUlLRgwQI19myLioo8NMfKysq8PE8AI0dvb6/4PJ2dnf41SJ8%2BfZqQkEAcaDAYiGKrVq0iyuzcuZMok5eXp8Y1pA0NDa2trW53dXd3X7hwQeLryc/PJ/oXtbW1/p1q48aNXV1dhB/z58/3HKjcbnE9Si0LjPV6/djYmGvSKSoqmpiYkPJK1qxZ09DQQAzE3bt3z%2B8T6nS6pqYmYoSDKPPnzx9ii91uJ7bMmzdPpXLk5uaKm%2BvO5urmzZulvIytW7cajcaYmBhxftmzZ4%2BHQ168eGEwGNLS0qKiouLj4/Py8trb210/XU5Ojk%2BPI3PdotIXAi1cuHB4eNhtzh4ZGUlLS5OmzaHX6x0Oh/jw7u5uD7/XxsbG9evXu91VVVVFXMn58%2Bede48ePUrsTUxMJM6wYcMGoszu3bvVKMeDBw88tOmeP3/udvQ6sHJUVlYSxz569Cg6Otq/TxQdHU10Vh8%2BfOihQbp69WriDLt27aKhQSozBQUFRC309/cTW44cORI8OSIiIhobG4kDr127NsMZr8HBwan6O9nZ2cS/27FjB3H44cOHiTJxcXHqMsN1AuXt27dRUVEdHR3EyNiKFSuCIcfcuXOfPHlCHFVeXj7Dz%2BUaOZqbmz0Mgp07d444w507d2gYBJMT1wmUyT5kSkoKMX7c29s77U/ZVzl0Op3ZbCZmMQoLC7258traWoPBMNVsvmub4/Tp08zUI7CDg4Pi9viiRYtGR0dVPXy%2Bb98%2BogYrKyude0tKSoi9x48fD6AcK1euJCK/1Wr1Pq83NzcLgmCxWK5cubJ9%2B3adThcZGanVajdt2kQYPwkxa5ibm0sUaG9vd068EUNwPM%2BnpqaqyIzExESr1Squgjdv3hATKI8fPybqKD09PVByXL9%2B3aeJfsKbSTm85Pbt28wMpuwrKioYNc%2B38TzvOoS8ePFiokViNps9zMDRKcerV69cR70mh8KI5ZJY7MMwDLN//36iCk6cOOG2pOtiMHHqkVGOxMTEuro6YrGj6yrDy5cve7iGmJiYpqYmD8sEL1265M10dOiQnJxMrPExmUweGpv3798nqiwrK0t2OZzfbkFBQWNjY39/v8VicTgcNpvt06dPra2tZWVlOp2O8e5WperqarPZPDw8zPP8t2/fXr58eerUKZUuMAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAq4F9xYn5sjJuDyAAAAABJRU5ErkJggg%3D%3D%22%2C%20%22sizes%22%3A%20%22180x180%22%2C%20%22type%22%3A%20%22image/png%22%7D%5D%7D">
+<style>
+  :root {
+    --bg:#000; --fg:#fff; --dim:#8a8a8a; --tile:#121212; --accent:#ffb000; --btn:#1e1e1e; --btnfg:#fff;
+  }
+  body.day { --bg:#fff; --fg:#000; --dim:#555; --tile:#ededed; --accent:#c25e00; --btn:#dadada; --btnfg:#000; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system, system-ui, "SF Pro Display", sans-serif; overflow:hidden;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; overscroll-behavior:none; }
+  #app { height:100%; display:flex; flex-direction:column;
+    padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 12px)
+             calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 12px); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* top bar */
+  .top { display:flex; align-items:center; gap:10px; padding:6px 0; }
+  .gps { flex:1; display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; color:var(--dim); white-space:nowrap; overflow:hidden; }
+  .dot { width:12px; height:12px; border-radius:50%; background:#777; flex:none; }
+  .rec { color:var(--accent); display:none; }
+  .running .rec { display:inline; }
+  .clock { flex:1; text-align:center; font-size:22px; font-weight:800; }
+  .theme { flex:1; display:flex; justify-content:flex-end; }
+  .theme button { background:var(--btn); color:var(--btnfg); border:0; border-radius:10px; padding:8px 14px; font:700 15px inherit; font-family:inherit; }
+
+  /* body layout */
+  .main { flex:1; display:flex; flex-direction:column; min-height:0; }
+  .speedBlock { display:flex; align-items:center; justify-content:center; gap:8px; padding:4px 0; }
+  .speedCol { flex:1; display:flex; flex-direction:column; align-items:center; }
+  .speed { font-weight:900; letter-spacing:-0.04em; line-height:1; font-size:min(48vw, 27vh); }
+  .unit { font-size:20px; font-weight:800; letter-spacing:4px; color:var(--dim); margin-top:2px; }
+  .gearBox { border:3px solid var(--tile); border-radius:16px; padding:8px 14px; text-align:center; color:var(--dim); }
+  .gearBox .lbl { font-size:13px; font-weight:800; letter-spacing:2px; }
+  .gearBox .g { font-size:min(18vw, 9vh); font-weight:900; line-height:1.1; }
+  .gearBox .note { font-size:10px; font-weight:600; }
+
+  .side { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:1fr; gap:8px; margin-top:8px; flex:1; max-height:46vh; }
+  .tile { background:var(--tile); border-radius:14px; padding:10px 14px; min-width:0; display:flex; flex-direction:column; justify-content:center; }
+  .tile .lbl { font-size:12px; font-weight:800; letter-spacing:1.5px; color:var(--dim); }
+  .tile .val { font-size:min(10vw, 44px); font-weight:800; white-space:nowrap; overflow:hidden; }
+  .tile .u { font-size:16px; font-weight:700; color:var(--dim); }
+
+  .buttons { display:flex; gap:8px; margin-top:auto; padding-top:8px; }
+  .big { flex:1; height:64px; border:0; border-radius:16px; font-family:inherit; font-size:20px; font-weight:900; letter-spacing:1px;
+         background:var(--btn); color:var(--btnfg); }
+  .big:active { opacity:.6; }
+  .big.go { background:var(--accent); color:#000; }
+
+  /* landscape: speed left, tiles right */
+  @media (orientation: landscape) {
+    .main { flex-direction:row; gap:12px; }
+    .speedBlock { flex:1.15; }
+    .speed { font-size:min(42vh, 26vw); }
+    .gearBox .g { font-size:min(18vh, 9vw); }
+    .grid { grid-template-columns:1fr 1fr 1fr; max-height:none; }
+    .tile .val { font-size:min(9vh, 40px); }
+  }
+
+  /* overlays */
+  .hint { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 96px); transform:translateX(-50%);
+          background:var(--accent); color:#000; font-size:18px; font-weight:800; padding:10px 18px; border-radius:12px;
+          opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  .hint.show { opacity:1; }
+  .overlay { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center;
+             padding:32px; text-align:center; gap:18px; }
+  .overlay h1 { margin:0; font-size:34px; }
+  .overlay p { margin:0; color:var(--dim); font-size:18px; line-height:1.45; max-width:440px; }
+  .overlay .big { flex:none; width:100%; max-width:360px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="gps"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span><span class="rec">● REC</span></div>
+    <div class="clock num" id="clock">--:--</div>
+    <div class="theme"><button id="themeBtn">DAY</button></div>
+  </div>
+
+  <div class="main">
+    <div class="speedBlock">
+      <div class="speedCol">
+        <div class="speed num" id="speed">0</div>
+        <div class="unit">MPH</div>
+      </div>
+      <div class="gearBox">
+        <div class="lbl">GEAR</div>
+        <div class="g" id="gear">–</div>
+        <div class="note">sensor<br>not linked</div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="grid">
+        <div class="tile"><div class="lbl">TRIP</div><div class="val num"><span id="trip">0.0</span><span class="u"> mi</span></div></div>
+        <div class="tile"><div class="lbl">MAX</div><div class="val num"><span id="max">0</span><span class="u"> mph</span></div></div>
+        <div class="tile"><div class="lbl">AVG (MOVING)</div><div class="val num"><span id="avg">0</span><span class="u"> mph</span></div></div>
+        <div class="tile"><div class="lbl">RIDE TIME</div><div class="val num" id="rideTime">0:00</div></div>
+        <div class="tile"><div class="lbl">HEADING</div><div class="val" id="heading">--</div></div>
+        <div class="tile"><div class="lbl">ALTITUDE</div><div class="val num"><span id="alt">--</span><span class="u"> ft</span></div></div>
+      </div>
+      <div class="buttons">
+        <button class="big go" id="runBtn">START RIDE</button>
+        <button class="big" id="resetBtn">RESET</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="hint" id="hint"></div>
+
+<div class="overlay" id="startOverlay">
+  <h1>XT250 Dash</h1>
+  <p id="startMsg">Tap below to turn on GPS. Allow location when your iPhone asks.</p>
+  <button class="big go" id="enableBtn">TURN ON GPS</button>
+</div>
+
+<script>
+(() => {
+  const MPS_TO_MPH = 2.23694, M_TO_MI = 0.000621371, M_TO_FT = 3.28084;
+  const MOVING_MPH = 2.5;   // below this = stopped (kills GPS drift)
+  const GOOD_ACC_M = 25;    // only trust fixes this accurate for distance/max
+  const STORE_KEY = 'xt250dash.trip.v1', THEME_KEY = 'xt250dash.theme';
+  const EMPTY = { distM:0, maxMph:0, movingMs:0, rideMs:0 };
+
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+    set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+  };
+
+  let trip = { ...EMPTY };
+  try { const raw = store.get(STORE_KEY); if (raw) trip = { ...EMPTY, ...JSON.parse(raw) }; } catch(e) {}
+  let running = false, lastGood = null, lastAny = null, smooth = 0, lastTick = Date.now();
+  let live = { mph:0, acc:null, heading:null, altFt:null };
+  let watchId = null, wakeLock = null, hintTimer = null;
+
+  const save = () => store.set(STORE_KEY, JSON.stringify(trip));
+
+  function haversine(a, b) {
+    const R = 6371000, r = d => d * Math.PI / 180;
+    const dLat = r(b.latitude - a.latitude), dLon = r(b.longitude - a.longitude);
+    const s = Math.sin(dLat/2)**2 + Math.cos(r(a.latitude))*Math.cos(r(b.latitude))*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function bearing(a, b) {
+    const r = d => d * Math.PI / 180, y = Math.sin(r(b.longitude - a.longitude)) * Math.cos(r(b.latitude));
+    const x = Math.cos(r(a.latitude))*Math.sin(r(b.latitude)) - Math.sin(r(a.latitude))*Math.cos(r(b.latitude))*Math.cos(r(b.longitude - a.longitude));
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  function fmtDur(ms) {
+    const t = Math.floor(ms/1000), h = Math.floor(t/3600), m = Math.floor((t%3600)/60), s = t%60;
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+  function fmtClock(d) {
+    let h = d.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return `${h}:${pad(d.getMinutes())} ${ap}`;
+  }
+  function cardinal(deg) {
+    if (deg == null || isNaN(deg) || deg < 0) return '--';
+    return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45) % 8];
+  }
+  function showHint(t) {
+    const h = $('hint'); h.textContent = t; h.classList.add('show');
+    clearTimeout(hintTimer); hintTimer = setTimeout(() => h.classList.remove('show'), 2000);
+  }
+
+  function render() {
+    $('speed').textContent = Math.round(live.mph);
+    const mi = trip.distM * M_TO_MI;
+    $('trip').textContent = mi.toFixed(1);
+    $('max').textContent = Math.round(trip.maxMph);
+    $('avg').textContent = trip.movingMs > 0 ? Math.round(mi / (trip.movingMs / 3600000)) : 0;
+    $('rideTime').textContent = fmtDur(trip.rideMs);
+    $('heading').textContent = cardinal(live.heading);
+    $('alt').textContent = live.altFt != null ? Math.round(live.altFt).toLocaleString() : '--';
+    const acc = live.acc;
+    let color = '#777', text = watchId == null ? 'GPS off' : 'GPS searching';
+    if (acc != null) {
+      if (acc <= 10) { color = '#2ecc40'; text = `±${Math.round(acc)} m`; }
+      else if (acc <= GOOD_ACC_M) { color = '#ffb000'; text = `±${Math.round(acc)} m`; }
+      else { color = '#ff4136'; text = `weak ±${Math.round(acc)} m`; }
+    }
+    $('gpsDot').style.background = color; $('gpsText').textContent = text;
+  }
+
+  function onFix(pos) {
+    const c = pos.coords, t = pos.timestamp || Date.now();
+    let raw = 0;
+    if (c.speed != null && !isNaN(c.speed) && c.speed >= 0) raw = c.speed * MPS_TO_MPH;
+    else if (lastAny) { const dt = (t - lastAny.t) / 1000; if (dt >= 0.8) raw = haversine(lastAny.c, c) / dt * MPS_TO_MPH; }
+    lastAny = { c, t };
+
+    smooth = smooth * 0.4 + raw * 0.6;
+    const mph = smooth < MOVING_MPH ? 0 : smooth;
+    const good = c.accuracy != null && c.accuracy <= GOOD_ACC_M;
+
+    const prevGood = lastGood;
+    if (good) {
+      if (running && lastGood && mph > 0) {
+        const dtMs = Math.min(t - lastGood.t, 5000);
+        if (dtMs > 0) {
+          trip.distM += haversine(lastGood.c, c);
+          trip.movingMs += dtMs;
+          trip.maxMph = Math.max(trip.maxMph, mph);
+        }
+      }
+      lastGood = { c, t };
+    }
+    let hdg = (c.heading != null && !isNaN(c.heading) && c.heading >= 0) ? c.heading : null;
+    if (hdg == null && mph > 0 && prevGood && haversine(prevGood.c, c) > 5) hdg = bearing(prevGood.c, c);
+    live = { mph, acc: c.accuracy, heading: mph > 0 ? hdg : null,
+             altFt: c.altitude != null ? c.altitude * M_TO_FT : null };
+    render();
+  }
+
+  function onGeoError(err) {
+    if (err.code === 1) { // permission denied
+      if (watchId != null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      $('startMsg').innerHTML = 'Location is blocked. Go to <b>Settings → Privacy &amp; Security → Location Services</b>, make sure it\'s on and that <b>Safari Websites</b> is set to <b>While Using</b>. Then tap below.';
+      $('startOverlay').classList.remove('hidden');
+    }
+    // timeouts / unavailable: keep watching, the dot shows "searching"
+  }
+
+  function startGps() {
+    if (!('geolocation' in navigator)) { $('startMsg').textContent = 'This browser has no GPS access.'; return; }
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = navigator.geolocation.watchPosition(onFix, onGeoError,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    $('startOverlay').classList.add('hidden');
+    requestWake();
+    render();
+  }
+
+  async function requestWake() {
+    try {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!('wakeLock' in navigator)) {
+        showHint('Set Auto-Lock to Never while riding');
+      }
+    } catch (e) { /* ignore */ }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { if (watchId != null) requestWake(); lastTick = Date.now(); }
+    else save();
+  });
+  window.addEventListener('pagehide', save);
+
+  // 1-second tick
+  let ticks = 0;
+  setInterval(() => {
+    const n = Date.now();
+    $('clock').textContent = fmtClock(new Date(n));
+    if (running) {
+      trip.rideMs += Math.min(n - lastTick, 5000);
+      if (++ticks % 5 === 0) save();
+      render();
+    }
+    lastTick = n;
+  }, 1000);
+
+  // buttons
+  $('enableBtn').addEventListener('click', startGps);
+  $('runBtn').addEventListener('click', () => {
+    running = !running; lastTick = Date.now(); lastGood = null;
+    document.body.classList.toggle('running', running);
+    $('runBtn').textContent = running ? 'PAUSE' : 'START RIDE';
+    $('runBtn').classList.toggle('go', !running);
+    if (!running) save();
+    if (watchId == null) startGps();
+    requestWake();
+  });
+
+  // reset: must HOLD for 0.8 s
+  let holdTimer = null;
+  const resetBtn = $('resetBtn');
+  const holdStart = e => { e.preventDefault(); holdTimer = setTimeout(() => {
+      holdTimer = null; trip = { ...EMPTY }; lastGood = null; save(); render(); showHint('Trip reset');
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 800); };
+  const holdEnd = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; showHint('Hold to reset trip'); } };
+  resetBtn.addEventListener('touchstart', holdStart, { passive:false });
+  resetBtn.addEventListener('touchend', holdEnd);
+  resetBtn.addEventListener('touchcancel', () => { clearTimeout(holdTimer); holdTimer = null; });
+  resetBtn.addEventListener('mousedown', holdStart);
+  resetBtn.addEventListener('mouseup', holdEnd);
+
+  // theme
+  function applyTheme(day) {
+    document.body.classList.toggle('day', day);
+    $('themeBtn').textContent = day ? 'NIGHT' : 'DAY';
+    document.querySelector('meta[name=theme-color]').setAttribute('content', day ? '#ffffff' : '#000000');
+  }
+  let day = store.get(THEME_KEY) === 'day';
+  applyTheme(day);
+  $('themeBtn').addEventListener('click', () => { day = !day; applyTheme(day); store.set(THEME_KEY, day ? 'day' : 'night'); });
+
+  // no pinch/double-tap zoom while riding
+  document.addEventListener('gesturestart', e => e.preventDefault());
+
+  $('clock').textContent = fmtClock(new Date());
+  render();
+})();
+</script>
+</body>
+</html>
