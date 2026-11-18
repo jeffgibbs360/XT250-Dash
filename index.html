@@ -33,7 +33,7 @@
   .running .rec { display:inline; }
   .clock { flex:1; text-align:center; font-size:22px; font-weight:800; }
   .theme { flex:1; display:flex; justify-content:flex-end; }
-  .theme button { background:var(--btn); color:var(--btnfg); border:0; border-radius:10px; padding:8px 14px; font:700 15px inherit; font-family:inherit; }
+  .theme button, .topBtns button { background:var(--btn); color:var(--btnfg); border:0; border-radius:10px; padding:8px 14px; font:700 15px inherit; font-family:inherit; }
 
   /* body layout */
   .main { flex:1; display:flex; flex-direction:column; min-height:0; }
@@ -69,6 +69,25 @@
     .tile .val { font-size:min(9vh, 40px); }
   }
 
+  /* map view */
+  .mapWrap { display:none; flex:1; position:relative; border-radius:14px; overflow:hidden; margin-top:6px; min-height:0; }
+  body.mapMode .main { display:none; }
+  body.mapMode .mapWrap { display:block; }
+  #map { position:absolute; inset:0; background:#1a1a1a; }
+  #map.darkTiles .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+  .ov { position:absolute; z-index:500; background:rgba(0,0,0,.78); color:#fff; border-radius:14px; }
+  .mapSpeed { left:10px; top:10px; padding:6px 16px 8px; text-align:center; }
+  .mapSpeed .num { font-size:60px; font-weight:900; line-height:1; }
+  .mapSpeed .mu { font-size:12px; font-weight:800; letter-spacing:3px; color:#bbb; }
+  .mapStats { left:10px; bottom:24px; padding:8px 14px; font-size:20px; font-weight:800; }
+  .mapStats .u { color:#bbb; font-size:15px; }
+  .mapBtn { right:10px; border:0; padding:12px 16px; font-family:inherit; font-size:16px; font-weight:800; }
+  #layerBtn { top:10px; }
+  #recenterBtn { bottom:24px; background:var(--accent); color:#000; }
+  .mapMsg { left:50%; top:50%; transform:translate(-50%,-50%); padding:14px 18px; font-size:17px; font-weight:700; text-align:center; }
+  .leaflet-control-attribution { font-size:9px !important; }
+  .topBtns { display:flex; gap:8px; }
+
   /* overlays */
   .hint { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 96px); transform:translateX(-50%);
           background:var(--accent); color:#000; font-size:18px; font-weight:800; padding:10px 18px; border-radius:12px;
@@ -87,7 +106,7 @@
   <div class="top">
     <div class="gps"><span class="dot" id="gpsDot"></span><span id="gpsText">GPS off</span><span class="rec">● REC</span></div>
     <div class="clock num" id="clock">--:--</div>
-    <div class="theme"><button id="themeBtn">DAY</button></div>
+    <div class="theme"><div class="topBtns"><button id="viewBtn">MAP</button><button id="themeBtn">DAY</button></div></div>
   </div>
 
   <div class="main">
@@ -112,11 +131,21 @@
         <div class="tile"><div class="lbl">HEADING</div><div class="val" id="heading">--</div></div>
         <div class="tile"><div class="lbl">ALTITUDE</div><div class="val num"><span id="alt">--</span><span class="u"> ft</span></div></div>
       </div>
-      <div class="buttons">
-        <button class="big go" id="runBtn">START RIDE</button>
-        <button class="big" id="resetBtn">RESET</button>
-      </div>
     </div>
+  </div>
+
+  <div class="mapWrap" id="mapWrap">
+    <div id="map"></div>
+    <div class="ov mapSpeed"><div class="num" id="mSpeed">0</div><div class="mu">MPH</div></div>
+    <div class="ov mapStats"><span class="num" id="mTrip">0.0</span><span class="u"> mi</span> &nbsp;<span class="num" id="mTime">0:00</span></div>
+    <button class="ov mapBtn" id="layerBtn">STREET</button>
+    <button class="ov mapBtn hidden" id="recenterBtn">RECENTER</button>
+    <div class="ov mapMsg hidden" id="mapMsg">Map needs a cell signal to load.<br>Speed and trip still work.</div>
+  </div>
+
+  <div class="buttons">
+    <button class="big go" id="runBtn">START RIDE</button>
+    <button class="big" id="resetBtn">RESET</button>
   </div>
 </div>
 
@@ -134,6 +163,8 @@
   const MOVING_MPH = 2.5;   // below this = stopped (kills GPS drift)
   const GOOD_ACC_M = 25;    // only trust fixes this accurate for distance/max
   const STORE_KEY = 'xt250dash.trip.v1', THEME_KEY = 'xt250dash.theme';
+  const TRACK_KEY = 'xt250dash.track.v1', LAYER_KEY = 'xt250dash.layer', VIEW_KEY = 'xt250dash.view';
+  const MAX_TRACK_PTS = 8000;
   const EMPTY = { distM:0, maxMph:0, movingMs:0, rideMs:0 };
 
   const $ = id => document.getElementById(id);
@@ -148,7 +179,69 @@
   let live = { mph:0, acc:null, heading:null, altFt:null };
   let watchId = null, wakeLock = null, hintTimer = null;
 
-  const save = () => store.set(STORE_KEY, JSON.stringify(trip));
+  // ride track: list of segments, each a list of [lat, lng]
+  let track = [[]];
+  try { const t = JSON.parse(store.get(TRACK_KEY) || 'null'); if (Array.isArray(t) && t.length) track = t; } catch(e) {}
+  const trackCount = () => track.reduce((n, seg) => n + seg.length, 0);
+
+  const save = () => { store.set(STORE_KEY, JSON.stringify(trip)); store.set(TRACK_KEY, JSON.stringify(track)); };
+
+  // ---------- map ----------
+  const LAYERS = [
+    { name:'STREET', url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png', dark:true,
+      opt:{ maxZoom:19, attribution:'&copy; OpenStreetMap contributors' } },
+    { name:'TOPO', url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', dark:false,
+      opt:{ maxZoom:17, subdomains:'abc', attribution:'&copy; OpenStreetMap contributors, SRTM | &copy; OpenTopoMap (CC-BY-SA)' } },
+    { name:'SAT', url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', dark:false,
+      opt:{ maxZoom:19, attribution:'Tiles &copy; Esri, Maxar, Earthstar Geographics' } },
+  ];
+  let leafletFailed = false;
+  let map = null, tiles = null, trackLine = null, me = null, follow = true, lastPos = null;
+  let layerIdx = Math.min(parseInt(store.get(LAYER_KEY) || '0', 10) || 0, LAYERS.length - 1);
+  const ME_SVG = '<svg viewBox="0 0 44 44" width="44" height="44"><g id="meRot"><path id="meArrow" d="M22 1 L30 15 L14 15 Z" fill="#1e90ff" stroke="#fff" stroke-width="2"/><circle cx="22" cy="22" r="10" fill="#1e90ff" stroke="#fff" stroke-width="3"/></g></svg>';
+
+  function darkTiles() {
+    if (map) $('map').classList.toggle('darkTiles', !document.body.classList.contains('day') && LAYERS[layerIdx].dark);
+  }
+  function setLayer(i) {
+    layerIdx = i; store.set(LAYER_KEY, String(i));
+    $('layerBtn').textContent = LAYERS[i].name;
+    if (!map) return;
+    if (tiles) map.removeLayer(tiles);
+    tiles = L.tileLayer(LAYERS[i].url, LAYERS[i].opt).addTo(map);
+    if (map.getZoom() > LAYERS[i].opt.maxZoom) map.setZoom(LAYERS[i].opt.maxZoom);
+    darkTiles();
+  }
+  function ensureMap() {
+    if (map) { map.invalidateSize(); updateMap(); return; }
+    if (!window.L) { if (leafletFailed) $('mapMsg').classList.remove('hidden'); return; } // else still loading
+    $('mapMsg').classList.add('hidden');
+    map = L.map('map', { zoomControl:false, attributionControl:true })
+      .setView(lastPos || [39.8, -98.6], lastPos ? 16 : 4);
+    setLayer(layerIdx);
+    trackLine = L.polyline(track, { color:'#ffb000', weight:5, opacity:.95 }).addTo(map);
+    me = L.marker([0, 0], { icon: L.divIcon({ className:'', html: ME_SVG, iconSize:[44,44], iconAnchor:[22,22] }), interactive:false });
+    map.on('dragstart', () => { follow = false; $('recenterBtn').classList.remove('hidden'); });
+    updateMap();
+  }
+  function updateMap() {
+    if (!map || !document.body.classList.contains('mapMode') || !lastPos) return;
+    if (!map.hasLayer(me)) { me.addTo(map); map.setView(lastPos, 16); }
+    me.setLatLng(lastPos);
+    const g = document.getElementById('meRot'), arrow = document.getElementById('meArrow');
+    if (g && arrow) {
+      const h = live.heading;
+      arrow.style.display = h == null ? 'none' : '';
+      g.setAttribute('transform', h == null ? '' : `rotate(${h} 22 22)`);
+    }
+    if (follow) map.panTo(lastPos, { animate:true, duration:0.5 });
+  }
+  function setView(mapMode) {
+    document.body.classList.toggle('mapMode', mapMode);
+    $('viewBtn').textContent = mapMode ? 'DASH' : 'MAP';
+    store.set(VIEW_KEY, mapMode ? 'map' : 'dash');
+    if (mapMode) setTimeout(ensureMap, 30);
+  }
 
   function haversine(a, b) {
     const R = 6371000, r = d => d * Math.PI / 180;
@@ -186,6 +279,9 @@
     $('max').textContent = Math.round(trip.maxMph);
     $('avg').textContent = trip.movingMs > 0 ? Math.round(mi / (trip.movingMs / 3600000)) : 0;
     $('rideTime').textContent = fmtDur(trip.rideMs);
+    $('mSpeed').textContent = Math.round(live.mph);
+    $('mTrip').textContent = mi.toFixed(1);
+    $('mTime').textContent = fmtDur(trip.rideMs);
     $('heading').textContent = cardinal(live.heading);
     $('alt').textContent = live.altFt != null ? Math.round(live.altFt).toLocaleString() : '--';
     const acc = live.acc;
@@ -220,12 +316,24 @@
         }
       }
       lastGood = { c, t };
+      if (running && mph > 0) {
+        const seg = track[track.length - 1];
+        const last = seg[seg.length - 1];
+        const pt = [Math.round(c.latitude * 1e5) / 1e5, Math.round(c.longitude * 1e5) / 1e5];
+        if (!last || haversine({ latitude:last[0], longitude:last[1] }, c) > 8) {
+          seg.push(pt);
+          if (trackCount() > MAX_TRACK_PTS) { track[0].shift(); if (!track[0].length && track.length > 1) track.shift(); }
+          if (trackLine) trackLine.setLatLngs(track);
+        }
+      }
     }
     let hdg = (c.heading != null && !isNaN(c.heading) && c.heading >= 0) ? c.heading : null;
     if (hdg == null && mph > 0 && prevGood && haversine(prevGood.c, c) > 5) hdg = bearing(prevGood.c, c);
     live = { mph, acc: c.accuracy, heading: mph > 0 ? hdg : null,
              altFt: c.altitude != null ? c.altitude * M_TO_FT : null };
+    lastPos = [c.latitude, c.longitude];
     render();
+    updateMap();
   }
 
   function onGeoError(err) {
@@ -281,6 +389,7 @@
   $('enableBtn').addEventListener('click', startGps);
   $('runBtn').addEventListener('click', () => {
     running = !running; lastTick = Date.now(); lastGood = null;
+    if (running && track[track.length - 1].length) track.push([]);
     document.body.classList.toggle('running', running);
     $('runBtn').textContent = running ? 'PAUSE' : 'START RIDE';
     $('runBtn').classList.toggle('go', !running);
@@ -293,7 +402,7 @@
   let holdTimer = null;
   const resetBtn = $('resetBtn');
   const holdStart = e => { e.preventDefault(); holdTimer = setTimeout(() => {
-      holdTimer = null; trip = { ...EMPTY }; lastGood = null; save(); render(); showHint('Trip reset');
+      holdTimer = null; trip = { ...EMPTY }; lastGood = null; track = [[]]; if (trackLine) trackLine.setLatLngs(track); save(); render(); showHint('Trip reset');
       if (navigator.vibrate) navigator.vibrate(50);
     }, 800); };
   const holdEnd = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; showHint('Hold to reset trip'); } };
@@ -308,6 +417,7 @@
     document.body.classList.toggle('day', day);
     $('themeBtn').textContent = day ? 'NIGHT' : 'DAY';
     document.querySelector('meta[name=theme-color]').setAttribute('content', day ? '#ffffff' : '#000000');
+    darkTiles();
   }
   let day = store.get(THEME_KEY) === 'day';
   applyTheme(day);
@@ -315,6 +425,27 @@
 
   // no pinch/double-tap zoom while riding
   document.addEventListener('gesturestart', e => e.preventDefault());
+
+  $('viewBtn').addEventListener('click', () => setView(!document.body.classList.contains('mapMode')));
+  $('layerBtn').addEventListener('click', () => setLayer((layerIdx + 1) % LAYERS.length));
+  $('recenterBtn').addEventListener('click', () => {
+    follow = true; $('recenterBtn').classList.add('hidden');
+    if (map && lastPos) map.setView(lastPos, Math.max(map.getZoom(), 15));
+  });
+  window.addEventListener('resize', () => { if (map) setTimeout(() => map.invalidateSize(), 100); });
+  $('layerBtn').textContent = LAYERS[layerIdx].name;
+  // load the map library in the background so the dash still opens instantly with no signal
+  (function loadLeaflet() {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.onload = () => { if (document.body.classList.contains('mapMode')) ensureMap(); };
+    js.onerror = () => { leafletFailed = true; if (document.body.classList.contains('mapMode')) $('mapMsg').classList.remove('hidden'); };
+    document.head.appendChild(js);
+  })();
+  if (store.get(VIEW_KEY) === 'map') setView(true);
 
   $('clock').textContent = fmtClock(new Date());
   render();
