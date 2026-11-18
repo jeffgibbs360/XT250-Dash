@@ -122,6 +122,8 @@
   #curDestName { font-size:18px; font-weight:800; margin:4px 0 10px; }
   .curDest { display:flex; flex-direction:column; gap:8px; padding-bottom:8px; border-bottom:1px solid var(--tile); }
   .big.danger { background:#c0392b; color:#fff; }
+  .big.back { background:#1e8449; color:#fff; }
+  .navBar.back { background:#1e6b34; }
   .big.sel { outline:3px solid var(--accent); outline-offset:-3px; }
   .pickName { font-size:22px; font-weight:900; }
   .pickAddr { color:var(--dim); font-size:14px; }
@@ -207,7 +209,7 @@
     <div class="curDest hidden" id="curDest">
       <div class="lbl">CURRENT DESTINATION</div>
       <div id="curDestName"></div>
-      <div class="row"><button class="big" id="modeRoad">ROAD ROUTE</button><button class="big" id="modeDirect">STRAIGHT LINE</button></div>
+      <div class="row"><button class="big" id="modeRoad">ROAD</button><button class="big" id="modeBack">BACK ROADS</button><button class="big" id="modeDirect">STRAIGHT</button></div>
       <button class="big danger" id="endNav2">END NAVIGATION</button>
     </div>
     <form class="searchRow" id="searchForm">
@@ -216,6 +218,20 @@
     </form>
     <div class="results" id="results"></div>
     <div class="tip">Tip: on the map, press and hold anywhere to navigate there.</div>
+    <button class="big" id="keyEdit">BACK ROADS KEY</button>
+  </div>
+</div>
+
+<div class="sheet hidden" id="keySheet">
+  <div class="sheetCard">
+    <div class="pickName">Back roads setup (one time)</div>
+    <div class="pickAddr" id="keyMsg">Back-road routing uses GraphHopper, which needs a free API key.<br>
+      1. Sign up free at <a href="https://www.graphhopper.com/" style="color:var(--accent)">graphhopper.com</a><br>
+      2. In your dashboard, open <b>API Keys</b> and copy your key<br>
+      3. Paste it below. It's saved only on this phone.</div>
+    <div class="searchRow"><input id="keyInput" type="text" placeholder="Paste API key" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+    <button class="big go" id="keySave">SAVE &amp; GO</button>
+    <button class="big" id="keyCancel">CANCEL</button>
   </div>
 </div>
 
@@ -223,7 +239,9 @@
   <div class="sheetCard">
     <div class="pickName" id="pickName"></div>
     <div class="pickAddr" id="pickAddr"></div>
-    <div class="row"><button class="big go" id="pickRoad">ROAD ROUTE</button><button class="big" id="pickDirect">STRAIGHT LINE</button></div>
+    <button class="big go" id="pickRoad">ROAD ROUTE</button>
+    <button class="big back" id="pickBack">BACK ROADS ONLY</button>
+    <button class="big" id="pickDirect">STRAIGHT LINE</button>
     <button class="big" id="pickCancel">CANCEL</button>
   </div>
 </div>
@@ -475,7 +493,7 @@
   const cardinalFull = deg => (deg == null || isNaN(deg)) ? '' : DIRS_FULL[Math.round(deg / 45) % 8];
   const ordinal = n => n + ((n % 10 === 1 && n % 100 !== 11) ? 'st' : (n % 10 === 2 && n % 100 !== 12) ? 'nd' : (n % 10 === 3 && n % 100 !== 13) ? 'rd' : 'th');
   const lcFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
-  let nav = null, routing = false, pending = null;
+  let nav = null, routing = false, pending = null, pendingBack = null;
   let routeLine = null, directLine = null, destMarker = null;
   let voiceOn = store.get(VOICE_KEY) !== 'off';
 
@@ -525,6 +543,7 @@
   function showNav(arrow, dist, text, remain, rot) {
     $('navBar').classList.remove('hidden');
     $('navBar').classList.toggle('direct', !!nav && nav.mode === 'direct');
+    $('navBar').classList.toggle('back', !!nav && nav.mode === 'back');
     $('navArrow').textContent = arrow;
     $('navArrow').style.transform = rot != null ? `rotate(${rot}deg)` : '';
     $('navDist').textContent = dist;
@@ -533,7 +552,52 @@
     if (map) setTimeout(() => map.invalidateSize(), 50);
   }
 
+  const GH_KEY = 'xt250dash.ghkey';
+  const GH_ARROWS = { '-3':'↙', '-2':'←', '-1':'↖', '0':'↑', '1':'↗', '2':'→', '3':'↘', '4':'🏁', '5':'🏁',
+                      '6':'⟳', '-6':'⟳', '-7':'↖', '7':'↗', '-8':'↶', '8':'↶', '-98':'↶' };
+  class RouteError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
+
+  function buildRoute(pts, steps, duration) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + haversine(LL(...pts[i - 1]), LL(...pts[i])));
+    return { pts, cum, steps, mIdx: steps.map(s => s.idx), total: cum[cum.length - 1] || 1, duration };
+  }
+
+  // Back roads only: GraphHopper with every "colored" road class banned outright
+  async function fetchBackRoute(from) {
+    const key = store.get(GH_KEY);
+    if (!key) throw new RouteError('nokey', 'No GraphHopper key');
+    const d = nav.dest;
+    const body = {
+      points: [[from[1], from[0]], [d.lng, d.lat]],
+      profile: 'car', 'ch.disable': true, points_encoded: false, instructions: true, locale: 'en',
+      custom_model: { priority: [
+        { if: 'road_class == MOTORWAY || road_class == TRUNK || road_class == PRIMARY || road_class == SECONDARY', multiply_by: '0' }
+      ] }
+    };
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 20000);
+    let res;
+    try {
+      res = await fetch('https://graphhopper.com/api/1/route?key=' + encodeURIComponent(key), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+    } finally { clearTimeout(to); }
+    let j = null; try { j = await res.json(); } catch (e) {}
+    if (res.status === 401 || res.status === 403) throw new RouteError('badkey', (j && j.message) || 'Key rejected');
+    if (res.status === 429) throw new RouteError('limit', 'Daily limit reached');
+    if (!res.ok || !j || !j.paths || !j.paths.length) {
+      const msg = (j && j.message) || ('HTTP ' + res.status);
+      if (res.status === 400 && /connection|not found|cannot find/i.test(msg)) throw new RouteError('noroute', msg);
+      throw new RouteError('net', msg);
+    }
+    const p = j.paths[0];
+    const pts = p.points.coordinates.map(c => [c[1], c[0]]);
+    const steps = p.instructions.map(ins => ({
+      idx: ins.interval[0], text: ins.text, arrow: GH_ARROWS[String(ins.sign)] || '↑' }));
+    return buildRoute(pts, steps, p.time / 1000);
+  }
+
   async function fetchRoute(from) {
+    if (nav.mode === 'back') return fetchBackRoute(from);
     const d = nav.dest;
     const url = `https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${d.lng},${d.lat}` +
                 `?overview=full&geometries=geojson&steps=true`;
@@ -545,11 +609,9 @@
     if (j.code !== 'Ok' || !j.routes || !j.routes.length) throw new Error(j.code || 'no route');
     const rt = j.routes[0];
     const pts = rt.geometry.coordinates.map(c => [c[1], c[0]]);
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + haversine(LL(...pts[i - 1]), LL(...pts[i])));
-    const steps = rt.legs[0].steps, mIdx = [];
+    const steps = [];
     let start = 0;
-    for (const st of steps) {
+    for (const st of rt.legs[0].steps) {
       const [lng, lat] = st.maneuver.location;
       let best = start, bd = Infinity;
       for (let i = start; i < pts.length; i++) {
@@ -557,9 +619,9 @@
         if (dd < bd) { bd = dd; best = i; }
         if (dd < 1) break;
       }
-      mIdx.push(best); start = best;
+      steps.push({ idx: best, text: instr(st), arrow: arrowFor(st) }); start = best;
     }
-    return { pts, cum, steps, mIdx, total: cum[cum.length - 1] || 1, duration: rt.duration };
+    return buildRoute(pts, steps, rt.duration);
   }
 
   function project(route, p) {
@@ -594,11 +656,23 @@
       if (nav !== myNav) return;
       nav.route = rt; nav.lastIdx = 0; nav.offCount = 0; nav.announced = {};
       drawNav();
-      speak(isOff ? 'Rerouting' : instr(rt.steps[0]));
+      speak(isOff ? 'Rerouting' : rt.steps[0].text);
       updateNav(lastPos || p, 10);
     } catch (e) {
       if (nav === myNav) {
-        if (!nav.route) showNav('!', 'No route', 'No signal, or no road there. Retrying…', 'Or tap NAV → Straight line');
+        const kind = e.kind || 'net';
+        if (kind === 'nokey' || kind === 'badkey') {
+          nav.stuck = true;
+          showNav('!', 'Key needed', kind === 'badkey' ? 'GraphHopper rejected the key' : 'Back roads needs a GraphHopper key', 'Tap NAV → BACK ROADS KEY');
+          openKeySheet(kind === 'badkey' ? 'That key was rejected. Check it and paste it again.' : null);
+        } else if (kind === 'noroute') {
+          nav.stuck = true;
+          showNav('!', 'No back-road route', 'Only major roads connect here', 'Tap NAV → ROAD or STRAIGHT');
+          speak('No back road route found');
+        } else if (kind === 'limit') {
+          nav.stuck = true;
+          showNav('!', 'Limit reached', "GraphHopper's free daily limit is used up", 'Tap NAV → ROAD or STRAIGHT');
+        } else if (!nav.route) showNav('!', 'No route', 'No signal, or no road there. Retrying…', 'Or tap NAV → Straight line');
         else showHint('Reroute failed, retrying');
       }
     } finally { routing = false; }
@@ -630,11 +704,11 @@
     }
 
     const rt = nav.route;
-    if (!rt) { if (!routing && Date.now() - nav.lastRouteAt > 15000) reroute(p, false); return; }
+    if (!rt) { if (!nav.stuck && !routing && Date.now() - nav.lastRouteAt > 15000) reroute(p, false); return; }
     const pr = project(rt, p);
     if (!pr) return;
     if (acc <= 30 && pr.off > 60) nav.offCount = (nav.offCount || 0) + 1; else if (pr.off <= 60) nav.offCount = 0;
-    if (nav.offCount >= 3 && Date.now() - nav.lastRouteAt > 15000) { reroute(p, true); }
+    if (nav.offCount >= 3 && !nav.stuck && Date.now() - nav.lastRouteAt > (nav.mode === 'back' ? 30000 : 15000)) { reroute(p, true); }
     if (pr.off <= 60) nav.lastIdx = pr.idx;
 
     let k = 1;
@@ -642,8 +716,8 @@
     k = Math.min(k, rt.steps.length - 1);
     const step = rt.steps[k], dist = Math.max(0, rt.cum[rt.mIdx[k]] - pr.along);
     const remain = Math.max(0, rt.total - pr.along);
-    const text = instr(step);
-    showNav(arrowFor(step), fmtDist(dist), text, remainText(remain, rt.duration * remain / rt.total));
+    const text = step.text;
+    showNav(step.arrow, fmtDist(dist), text, remainText(remain, rt.duration * remain / rt.total));
 
     const a = nav.announced[k] || (nav.announced[k] = {});
     if (!a.far && dist <= 330 && dist > 120) { a.far = true; speak(`In ${fmtDist(dist)}, ${lcFirst(text)}`); }
@@ -664,8 +738,8 @@
     routeLine = directLine = destMarker = null;
     if (!nav) return;
     const dll = [nav.dest.lat, nav.dest.lng];
-    if (nav.mode === 'road' && nav.route) {
-      routeLine = L.polyline(nav.route.pts, { color:'#1e90ff', weight:8, opacity:.75 }).addTo(map);
+    if (nav.mode !== 'direct' && nav.route) {
+      routeLine = L.polyline(nav.route.pts, { color: nav.mode === 'back' ? '#27ae60' : '#1e90ff', weight:8, opacity:.8 }).addTo(map);
     } else if (nav.mode === 'direct') {
       directLine = L.polyline([lastPos || dll, dll], { color:'#e0245e', weight:4, dashArray:'8 10' }).addTo(map);
     }
@@ -676,10 +750,11 @@
   function saveNav() { store.set(NAV_KEY, nav ? JSON.stringify({ dest: nav.dest, mode: nav.mode }) : ''); }
 
   function startNav(dest, mode) {
+    if (mode === 'back' && !store.get(GH_KEY)) { pendingBack = dest; openKeySheet(null); return; }
     nav = { dest, mode, route: null, lastIdx: 0, offCount: 0, lastRouteAt: 0, announced: {}, arrived: false };
     saveNav();
-    speak(mode === 'road' ? 'Starting route' : 'Straight line navigation');
-    showNav('…', '', lastPos ? (mode === 'road' ? 'Finding route…' : '') : 'Waiting for GPS…', '');
+    speak(mode === 'road' ? 'Starting route' : mode === 'back' ? 'Starting back roads route' : 'Straight line navigation');
+    showNav('…', '', lastPos ? (mode === 'direct' ? '' : mode === 'back' ? 'Finding back-road route…' : 'Finding route…') : 'Waiting for GPS…', '');
     if (watchId == null) startGps();
     drawNav();
     if (lastPos) updateNav(lastPos, 10);
@@ -743,6 +818,7 @@
       $('curDestName').textContent = nav.dest.name;
       $('modeRoad').classList.toggle('sel', nav.mode === 'road');
       $('modeDirect').classList.toggle('sel', nav.mode === 'direct');
+      $('modeBack').classList.toggle('sel', nav.mode === 'back');
     }
     openSheet('navSheet');
   });
@@ -753,6 +829,27 @@
   $('modeDirect').addEventListener('click', () => { closeSheet('navSheet'); startNav(nav.dest, 'direct'); });
   $('endNav2').addEventListener('click', () => { closeSheet('navSheet'); endNav(); });
   $('pickRoad').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'road'); });
+  $('pickBack').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'back'); });
+  $('modeBack').addEventListener('click', () => { closeSheet('navSheet'); startNav(nav.dest, 'back'); });
+  function openKeySheet(msg) {
+    $('keyInput').value = store.get(GH_KEY) || '';
+    if (msg) $('keyMsg').dataset.err = msg;
+    const err = $('keyMsg').querySelector('.err');
+    if (err) err.remove();
+    if (msg) { const e = document.createElement('div'); e.className = 'err'; e.style.cssText = 'color:#e74c3c;font-weight:800;margin-top:8px'; e.textContent = msg; $('keyMsg').appendChild(e); }
+    closeSheet('navSheet'); closeSheet('pickSheet'); openSheet('keySheet');
+  }
+  $('keyEdit').addEventListener('click', () => openKeySheet(null));
+  $('keyCancel').addEventListener('click', () => { closeSheet('keySheet'); pendingBack = null; });
+  $('keySave').addEventListener('click', () => {
+    const k = $('keyInput').value.trim();
+    if (!k) { $('keyInput').focus(); return; }
+    store.set(GH_KEY, k);
+    closeSheet('keySheet');
+    const dest = pendingBack || (nav && nav.mode === 'back' ? nav.dest : null);
+    pendingBack = null;
+    if (dest) startNav(dest, 'back'); else showHint('Key saved');
+  });
   $('pickDirect').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'direct'); });
   $('pickCancel').addEventListener('click', () => { closeSheet('pickSheet'); pending = null; });
   $('navEndBtn').addEventListener('click', () => { endNav(); showHint('Navigation ended'); });
