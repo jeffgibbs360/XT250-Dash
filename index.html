@@ -116,6 +116,10 @@
   .rName { font-size:17px; font-weight:800; }
   .rAddr { font-size:13px; color:var(--dim); margin-top:2px; }
   .tip { font-size:14px; color:var(--dim); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { background:var(--tile); color:var(--fg); border:0; border-radius:20px; padding:10px 14px; font-family:inherit; font-size:15px; font-weight:700; }
+  .chip:active { opacity:.6; }
+  .rHead { font-size:12px; font-weight:800; letter-spacing:1.5px; color:var(--dim); margin-top:6px; text-transform:uppercase; }
   .row { display:flex; gap:8px; }
   .curDest .lbl { font-size:12px; font-weight:800; letter-spacing:1.5px; color:var(--dim); }
   #curDestName { font-size:18px; font-weight:800; margin:4px 0 10px; }
@@ -213,9 +217,10 @@
       <button class="big danger" id="endNav2">END NAVIGATION</button>
     </div>
     <form class="searchRow" id="searchForm">
-      <input id="searchInput" type="search" placeholder="Address, place, or lat, lng" autocomplete="off" enterkeyhint="search">
+      <input id="searchInput" type="search" placeholder="Food, gas, a name, or an address" autocomplete="off" enterkeyhint="search">
       <button class="big go" type="submit">GO</button>
     </form>
+    <div class="chips" id="chips"></div>
     <div class="results" id="results"></div>
     <div class="tip">Tip: on the map, press and hold anywhere to navigate there.</div>
   </div>
@@ -893,6 +898,113 @@
     closeSheet('navSheet'); openSheet('pickSheet');
   }
 
+  // ---------- search: nearby places (OpenStreetMap via Overpass) + addresses (Nominatim) ----------
+  const RESTO = 'amenity~"^(restaurant|fast_food|cafe|food_court)$"';
+  const CATS = [
+    { words:['food','eat','restaurant','restaurants','hungry','lunch','dinner','breakfast','brunch'], f:[RESTO] },
+    { words:['fast food','drive thru','drive through'], f:['amenity=fast_food'] },
+    { words:['gas','fuel','gas station','gas stations','petrol'], f:['amenity=fuel'] },
+    { words:['coffee','cafe','espresso'], f:['amenity=cafe'] },
+    { words:['bar','bars','beer','pub','pubs','drinks','brewery'], f:['amenity~"^(bar|pub|biergarten)$"', 'craft=brewery'] },
+    { words:['hotel','hotels','motel','motels','lodging','sleep','room','inn'], f:['tourism~"^(hotel|motel|guest_house|hostel)$"'] },
+    { words:['camp','camping','campground','campgrounds','campsite'], f:['tourism~"^(camp_site|caravan_site)$"'] },
+    { words:['grocery','groceries','supermarket','food store'], f:['shop=supermarket'] },
+    { words:['convenience','store','snacks','gas station store'], f:['shop=convenience'] },
+    { words:['motorcycle','motorcycle shop','moto','dealer','dealership','bike shop'], f:['shop=motorcycle', 'shop=motorcycle_repair'] },
+    { words:['repair','mechanic','service','shop'], f:['shop~"^(motorcycle|motorcycle_repair|car_repair)$"'] },
+    { words:['parts','auto parts','car parts'], f:['shop~"^(car_parts|motorcycle)$"'] },
+    { words:['tire','tires','tyre','tyres'], f:['shop=tyres'] },
+    { words:['hardware','hardware store'], f:['shop~"^(hardware|doityourself)$"'] },
+    { words:['atm','cash','money'], f:['amenity=atm'] },
+    { words:['bank','banks'], f:['amenity=bank'] },
+    { words:['pharmacy','drugstore','medicine'], f:['amenity=pharmacy', 'shop=chemist'] },
+    { words:['hospital','er','emergency room'], f:['amenity=hospital'] },
+    { words:['urgent care','clinic','doctor'], f:['amenity~"^(clinic|doctors)$"'] },
+    { words:['restroom','restrooms','bathroom','bathrooms','toilet','toilets'], f:['amenity=toilets'] },
+    { words:['water','drinking water'], f:['amenity=drinking_water'] },
+    { words:['parking'], f:['amenity~"^(parking|motorcycle_parking)$"'] },
+    { words:['park','parks'], f:['leisure=park'] },
+    { words:['trail','trails','trailhead','trailheads'], f:['highway=trailhead'] },
+    { words:['car wash','wash'], f:['amenity=car_wash'] },
+    { words:['ice cream','dessert','frozen yogurt'], f:['amenity=ice_cream', 'shop=ice_cream', `${RESTO}][cuisine~"ice_cream|frozen_yogurt",i`] },
+  ];
+  const CUISINES = { pizza:'pizza', mexican:'mexican|tex-mex', tacos:'mexican|tex-mex|taco', taco:'mexican|taco', bbq:'bbq|barbecue',
+    barbecue:'bbq|barbecue', chinese:'chinese', sushi:'sushi|japanese', japanese:'japanese|sushi', italian:'italian|pizza',
+    seafood:'seafood|fish', burger:'burger', burgers:'burger', wings:'wings|chicken', chicken:'chicken|wings', sandwich:'sandwich|sub',
+    sandwiches:'sandwich|sub', subs:'sandwich|sub', thai:'thai', indian:'indian', steak:'steak_house|steak', steakhouse:'steak_house',
+    donut:'donut|doughnut', donuts:'donut|doughnut', bakery:'bakery', breakfast:'breakfast|pancake|waffle', vietnamese:'vietnamese', pho:'vietnamese' };
+  const SHORTCUTS = [['🍔', 'Food'], ['⛽', 'Gas'], ['☕', 'Coffee'], ['🛏️', 'Lodging'], ['🔧', 'Repair'], ['🛒', 'Grocery'], ['🚻', 'Restroom'], ['🏕️', 'Camping']];
+
+  function catFilters(q) {
+    q = q.toLowerCase().replace(/\b(near me|nearby|close by|around here|around me|close)\b/g, '').replace(/\s+/g, ' ').trim();
+    if (q === 'lodging') q = 'hotel';
+    for (const c of CATS) if (c.words.includes(q)) return { filters: c.f, q };
+    if (CUISINES[q]) return { filters: [`${RESTO}][cuisine~"${CUISINES[q]}",i`], q };
+    // a category word inside a longer phrase, e.g. "cheap food", "pizza place"
+    for (const w of q.split(' ')) if (CUISINES[w]) return { filters: [`${RESTO}][cuisine~"${CUISINES[w]}",i`], q };
+    for (const c of CATS) for (const w of c.words) if (new RegExp('\\b' + w + '\\b').test(q)) return { filters: c.f, q };
+    return null;
+  }
+
+  function typeLabel(t) {
+    const v = t.cuisine ? t.cuisine.split(';')[0] : (t.amenity || t.shop || t.tourism || t.leisure || t.highway || t.craft || '');
+    return v.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  async function overpass(filters, radius, nameRe) {
+    const [lat, lng] = lastPos;
+    const around = `(around:${radius},${lat.toFixed(5)},${lng.toFixed(5)})`;
+    let body;
+    if (filters) body = filters.map(f => `nwr[${f}]${around};`).join('');
+    else {
+      const re = nameRe.replace(/["\\]/g, '');
+      body = `nwr["name"~"${re}",i][~"^(amenity|shop|tourism|leisure|craft)$"~"."]${around};` +
+             `nwr["brand"~"${re}",i]${around};`;
+    }
+    const query = `[out:json][timeout:20];(${body});out center tags 80;`;
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 22000);
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST', body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctl.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      const seen = new Set();
+      return (j.elements || []).map(e => {
+        const t = e.tags || {}, la = e.lat != null ? e.lat : e.center && e.center.lat, lo = e.lon != null ? e.lon : e.center && e.center.lon;
+        if (la == null || !t.name && !t.brand) return null;
+        const addr = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ') || t['addr:city'] || '';
+        return { lat: la, lng: lo, name: t.name || t.brand, addr: [typeLabel(t), addr].filter(Boolean).join(' · '),
+                 d: haversine(LL(lat, lng), LL(la, lo)) };
+      }).filter(it => {
+        if (!it) return false;
+        const k = it.name + '|' + Math.round(it.lat * 2000) + '|' + Math.round(it.lng * 2000);   // same place as node + building
+        if (seen.has(k)) return false; seen.add(k); return true;
+      }).sort((a, b) => a.d - b.d);
+    } finally { clearTimeout(to); }
+  }
+
+  function resultButton(it) {
+    const b = document.createElement('button');
+    b.className = 'rItem'; b.type = 'button';
+    b.innerHTML = '<div class="rName"></div><div class="rAddr"></div>';
+    const d = it.d != null ? it.d : (lastPos ? haversine(LL(...lastPos), LL(it.lat, it.lng)) : null);
+    b.querySelector('.rName').textContent = it.name + (d != null ? '  ·  ' + fmtDist(d) : '');
+    b.querySelector('.rAddr').textContent = it.addr || '';
+    b.addEventListener('click', () => pickDest(it));
+    return b;
+  }
+  function header(t) { const h = document.createElement('div'); h.className = 'rHead'; h.textContent = t; return h; }
+
+  async function nominatim(q) {
+    let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=${encodeURIComponent(q)}`;
+    if (lastPos) url += `&viewbox=${lastPos[1] - 1.5},${lastPos[0] + 1.5},${lastPos[1] + 1.5},${lastPos[0] - 1.5}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const j = await res.json();
+    return j.map(x => ({ lat:+x.lat, lng:+x.lon, name: x.name || x.display_name.split(',')[0], addr: x.display_name }));
+  }
+
+  let searchSeq = 0;
   async function search(q) {
     const box = $('results');
     q = q.trim(); if (!q) return;
@@ -902,29 +1014,48 @@
       pickDest({ lat:+m[1], lng:+m[2], name:'Coordinates', addr:`${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}` });
       return;
     }
-    box.innerHTML = '<div class="rItem dim">Searching…</div>';
-    let url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(q)}`;
-    if (lastPos) url += `&viewbox=${lastPos[1] - 1.5},${lastPos[0] + 1.5},${lastPos[1] + 1.5},${lastPos[0] - 1.5}`;
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-      const j = await res.json();
-      if (!j.length) { box.innerHTML = '<div class="rItem dim">No results. Try adding the city or state.</div>'; return; }
-      box.innerHTML = '';
-      j.forEach(x => {
-        const it = { lat:+x.lat, lng:+x.lon, name: x.name || x.display_name.split(',')[0], addr: x.display_name };
-        const b = document.createElement('button');
-        b.className = 'rItem'; b.type = 'button';
-        b.innerHTML = '<div class="rName"></div><div class="rAddr"></div>';
-        const dist = lastPos ? '  ·  ' + fmtDist(haversine(LL(...lastPos), LL(it.lat, it.lng))) : '';
-        b.querySelector('.rName').textContent = it.name + dist;
-        b.querySelector('.rAddr').textContent = it.addr;
-        b.addEventListener('click', () => pickDest(it));
-        box.appendChild(b);
-      });
-    } catch (e) {
-      box.innerHTML = '<div class="rItem dim">Search failed. Check your signal.</div>';
+    const seq = ++searchSeq;
+    const cat = catFilters(q);
+    box.innerHTML = `<div class="rItem dim">${lastPos ? 'Searching near you…' : 'Searching… (no GPS yet, so results aren’t sorted by distance)'}</div>`;
+
+    let near = [], addrs = [], nearErr = null;
+    const nearJob = (async () => {
+      if (!lastPos) return;
+      try {
+        const term = cat ? null : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        near = await overpass(cat && cat.filters, 8000, term);
+        if (near.length < 5) near = await overpass(cat && cat.filters, 30000, term);
+      } catch (e) { nearErr = e; }
+    })();
+    const addrJob = cat ? Promise.resolve() : nominatim(q).then(x => { addrs = x; }).catch(() => {});
+    await Promise.all([nearJob, addrJob]);
+    if (seq !== searchSeq) return;   // a newer search started
+
+    box.innerHTML = '';
+    if (near.length) {
+      box.appendChild(header(cat ? `Nearby · ${near.length > 25 ? 'closest 25' : near.length + ' found'}` : 'Nearby matches'));
+      near.slice(0, 25).forEach(it => box.appendChild(resultButton(it)));
+    }
+    if (addrs.length) {
+      box.appendChild(header('Addresses & places'));
+      addrs.forEach(it => box.appendChild(resultButton(it)));
+    }
+    if (!near.length && !addrs.length) {
+      box.innerHTML = `<div class="rItem dim">${nearErr ? 'Search failed. Check your signal and try again.' :
+        cat ? 'Nothing found within about 20 miles.' : 'No results. Try a category like “food” or “gas”, or add the city.'}</div>`;
     }
   }
+
+  // one-tap category buttons
+  (function buildChips() {
+    const row = $('chips');
+    SHORTCUTS.forEach(([icon, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = icon + ' ' + label;
+      b.addEventListener('click', () => { $('searchInput').value = label.toLowerCase(); $('searchInput').blur(); search(label.toLowerCase()); });
+      row.appendChild(b);
+    });
+  })();
 
   $('navBtn').addEventListener('click', () => {
     $('curDest').classList.toggle('hidden', !nav);
