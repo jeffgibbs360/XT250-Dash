@@ -124,6 +124,7 @@
   .big.danger { background:#c0392b; color:#fff; }
   .big.back { background:#1e8449; color:#fff; }
   .navBar.back { background:#1e6b34; }
+  .navBar.err .navInstr, .navBar.err .navRemain { white-space:normal; overflow:visible; }
   .big.sel { outline:3px solid var(--accent); outline-offset:-3px; }
   .pickName { font-size:22px; font-weight:900; }
   .pickAddr { color:var(--dim); font-size:14px; }
@@ -218,20 +219,6 @@
     </form>
     <div class="results" id="results"></div>
     <div class="tip">Tip: on the map, press and hold anywhere to navigate there.</div>
-    <button class="big" id="keyEdit">BACK ROADS KEY</button>
-  </div>
-</div>
-
-<div class="sheet hidden" id="keySheet">
-  <div class="sheetCard">
-    <div class="pickName">Back roads setup (one time)</div>
-    <div class="pickAddr" id="keyMsg">Back-road routing uses GraphHopper, which needs a free API key.<br>
-      1. Sign up free at <a href="https://www.graphhopper.com/" style="color:var(--accent)">graphhopper.com</a><br>
-      2. In your dashboard, open <b>API Keys</b> and copy your key<br>
-      3. Paste it below. It's saved only on this phone.</div>
-    <div class="searchRow"><input id="keyInput" type="text" placeholder="Paste API key" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-    <button class="big go" id="keySave">SAVE &amp; GO</button>
-    <button class="big" id="keyCancel">CANCEL</button>
   </div>
 </div>
 
@@ -544,6 +531,7 @@
     $('navBar').classList.remove('hidden');
     $('navBar').classList.toggle('direct', !!nav && nav.mode === 'direct');
     $('navBar').classList.toggle('back', !!nav && nav.mode === 'back');
+    $('navBar').classList.toggle('err', arrow === '!');
     $('navArrow').textContent = arrow;
     $('navArrow').style.transform = rot != null ? `rotate(${rot}deg)` : '';
     $('navDist').textContent = dist;
@@ -552,9 +540,6 @@
     if (map) setTimeout(() => map.invalidateSize(), 50);
   }
 
-  const GH_KEY = 'xt250dash.ghkey';
-  const GH_ARROWS = { '-3':'↙', '-2':'←', '-1':'↖', '0':'↑', '1':'↗', '2':'→', '3':'↘', '4':'🏁', '5':'🏁',
-                      '6':'⟳', '-6':'⟳', '-7':'↖', '7':'↗', '-8':'↶', '8':'↶', '-98':'↶' };
   class RouteError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
 
   function buildRoute(pts, steps, duration) {
@@ -563,53 +548,104 @@
     return { pts, cum, steps, mIdx: steps.map(s => s.idx), total: cum[cum.length - 1] || 1, duration };
   }
 
-  // Back roads only: GraphHopper with every "colored" road class banned outright
-  // strict: major roads banned. soft: interstates banned, other major roads 50x "cost",
-  // so they're only used for short unavoidable bits (start/end on a main road, offset crossings).
-  const BACK_STRICT = { priority: [
-    { if: 'road_class == MOTORWAY || road_class == TRUNK || road_class == PRIMARY || road_class == SECONDARY', multiply_by: '0' } ] };
-  const BACK_SOFT = { priority: [
-    { if: 'road_class == MOTORWAY', multiply_by: '0' },
-    { else_if: 'road_class == TRUNK || road_class == PRIMARY || road_class == SECONDARY', multiply_by: '0.02' } ] };
+  // ---------- Back roads only: BRouter with a custom car profile ----------
+  // Major roads (motorway, trunk, primary, secondary = the colored roads on the street map) get
+  // costfactor 10000 = not usable. Crossing them at an intersection is still fine.
+  // Fallback "soft" profile: interstates still banned, other major roads very expensive, so they're
+  // only used for short unavoidable bits (start/end on a main road, offset crossings).
+  const BROUTER = 'https://brouter.de/brouter';
+  function backProfile(majorCost) {
+    return [
+      '# XT250 Dash - back roads only',
+      '---context:global',
+      'assign validForCars 1',
+      'assign turnInstructionMode 1',
+      'assign pass1coefficient 0',
+      'assign pass2coefficient -1',
+      '',
+      '---context:way',
+      'assign ismotorway highway=motorway|motorway_link',
+      'assign ismajor highway=trunk|trunk_link|primary|primary_link|secondary|secondary_link',
+      'assign isroad highway=tertiary|tertiary_link|unclassified|residential|living_street|road|service',
+      'assign nocar or access=private|no or motor_vehicle=private|no motorcar=private|no',
+      'assign oneway switch oneway= junction=roundabout oneway=yes|true|1',
+      'assign onewaypenalty switch switch reversedirection=yes oneway oneway=-1 100000 0',
+      'assign basecost',
+      '  switch ismotorway 10000',
+      '  switch ismajor ' + majorCost,
+      '  switch highway=tertiary|tertiary_link 1',
+      '  switch highway=residential|unclassified|living_street|road 1.1',
+      '  switch highway=service 2',
+      '  10000',
+      'assign costfactor add max onewaypenalty switch nocar 10000 0 basecost',
+      '',
+      '---context:node',
+      'assign initialcost switch barrier=bollard|block 1000000 0',
+      ''
+    ].join('\n');
+  }
+  const PROF_KEY = 'xt250dash.brprof.v1';
+  async function uploadProfile(kind, force) {
+    let cache = {};
+    try { cache = JSON.parse(store.get(PROF_KEY) || '{}'); } catch (e) {}
+    const c = cache[kind];
+    if (!force && c && Date.now() - c.t < 6 * 3600 * 1000) return c.id;
+    const res = await fetch(BROUTER + '/profile', { method: 'POST', body: backProfile(kind === 'strict' ? 10000 : 25) });
+    const txt = await res.text();
+    let j = null; try { j = JSON.parse(txt); } catch (e) {}
+    if (!j || !j.profileid) throw new RouteError('profile', 'Profile upload failed: ' + ((j && j.error) || txt.slice(0, 160)));
+    cache[kind] = { id: j.profileid, t: Date.now() };
+    store.set(PROF_KEY, JSON.stringify(cache));
+    return j.profileid;
+  }
+
+  const BR_CMDS = {
+    2: ['Turn left', '←'], 3: ['Turn slightly left', '↖'], 4: ['Turn sharp left', '↙'],
+    5: ['Turn right', '→'], 6: ['Turn slightly right', '↗'], 7: ['Turn sharp right', '↘'],
+    8: ['Keep left', '↖'], 9: ['Keep right', '↗'], 10: ['Make a U-turn', '↶'], 11: ['Make a U-turn', '↶'],
+    15: ['Make a U-turn', '↶'], 17: ['Exit left', '↖'], 18: ['Exit right', '↗']
+  };
+
+  async function brRoute(from, kind, retried) {
+    const id = await uploadProfile(kind, retried);
+    const d = nav.dest;
+    const url = `${BROUTER}?lonlats=${from[1].toFixed(6)},${from[0].toFixed(6)}|${d.lng.toFixed(6)},${d.lat.toFixed(6)}` +
+                `&profile=${encodeURIComponent(id)}&alternativeidx=0&format=geojson&timode=2`;
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 25000);
+    let res;
+    try { res = await fetch(url, { signal: ctl.signal }); } finally { clearTimeout(to); }
+    const txt = await res.text();
+    let j = null; try { j = JSON.parse(txt); } catch (e) {}
+    if (!j || !j.features || !j.features.length) {
+      const msg = txt.trim().slice(0, 200) || ('HTTP ' + res.status);
+      if (!retried && /profile/i.test(msg)) return brRoute(from, kind, true); // server forgot our profile
+      throw new RouteError('noroute', msg);
+    }
+    const f = j.features[0], props = f.properties || {};
+    const pts = f.geometry.coordinates.map(c => [c[1], c[0]]);
+    const steps = [{ idx: 0, text: 'Head out on the route', arrow: '↑' }];
+    (props.voicehints || []).forEach(h => {
+      const idx = h[0], cmd = h[1], exit = Math.abs(h[2] || 0);
+      if (!(idx > 0 && idx < pts.length)) return;
+      if (cmd === 13 || cmd === 14) steps.push({ idx, text: `At the roundabout, take the ${ordinal(exit || 1)} exit`, arrow: '⟳' });
+      else if (BR_CMDS[cmd]) steps.push({ idx, text: BR_CMDS[cmd][0], arrow: BR_CMDS[cmd][1] });
+    });
+    steps.sort((a, b) => a.idx - b.idx);
+    steps.push({ idx: pts.length - 1, text: 'Arrive at destination', arrow: '🏁' });
+    const rt = buildRoute(pts, steps, 0);
+    const t = parseFloat(props['total-time']);
+    rt.duration = t > 0 ? t : rt.total / 12.5; // fallback ~28 mph average
+    return rt;
+  }
 
   async function fetchBackRoute(from) {
-    try { return await ghRoute(from, BACK_STRICT); }
+    try { return await brRoute(from, 'strict', false); }
     catch (e) {
       if (e.kind !== 'noroute') throw e;
-      const rt = await ghRoute(from, BACK_SOFT);
+      const rt = await brRoute(from, 'soft', false);
       rt.soft = true;
       return rt;
     }
-  }
-
-  async function ghRoute(from, model) {
-    const key = store.get(GH_KEY);
-    if (!key) throw new RouteError('nokey', 'No GraphHopper key');
-    const d = nav.dest;
-    const body = {
-      points: [[from[1], from[0]], [d.lng, d.lat]],
-      profile: 'car', 'ch.disable': true, points_encoded: false, instructions: true, locale: 'en',
-      custom_model: model
-    };
-    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 20000);
-    let res;
-    try {
-      res = await fetch('https://graphhopper.com/api/1/route?key=' + encodeURIComponent(key), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
-    } finally { clearTimeout(to); }
-    let j = null; try { j = await res.json(); } catch (e) {}
-    if (res.status === 401 || res.status === 403) throw new RouteError('badkey', (j && j.message) || 'Key rejected');
-    if (res.status === 429) throw new RouteError('limit', 'Daily limit reached');
-    if (!res.ok || !j || !j.paths || !j.paths.length) {
-      const msg = (j && j.message) || ('HTTP ' + res.status);
-      if (res.status === 400) throw new RouteError('noroute', msg);
-      throw new RouteError('net', msg);
-    }
-    const p = j.paths[0];
-    const pts = p.points.coordinates.map(c => [c[1], c[0]]);
-    const steps = p.instructions.map(ins => ({
-      idx: ins.interval[0], text: ins.text, arrow: GH_ARROWS[String(ins.sign)] || '↑' }));
-    return buildRoute(pts, steps, p.time / 1000);
   }
 
   async function fetchRoute(from) {
@@ -679,18 +715,11 @@
       if (nav === myNav) {
         const kind = e.kind || 'net';
         nav.lastErr = (e.name === 'AbortError' ? 'timed out (no answer in 20 s)' : (e.message || String(e))) + (e.kind ? '' : ' [' + (e.name || 'error') + ']');
-        if (kind === 'nokey' || kind === 'badkey') {
+        if (kind === 'noroute' || kind === 'profile') {
           nav.stuck = true;
-          showNav('!', 'Key needed', kind === 'badkey' ? 'GraphHopper rejected the key' : 'Back roads needs a GraphHopper key', 'Tap NAV → BACK ROADS KEY');
-          openKeySheet(kind === 'badkey' ? 'That key was rejected. Check it and paste it again.' : null);
-        } else if (kind === 'noroute') {
-          nav.stuck = true;
-          showNav('!', 'No back-road route', 'GraphHopper: ' + e.message, 'Tap NAV → ROAD or STRAIGHT');
+          showNav('!', 'No back-road route', 'Router said: ' + e.message, 'Tap NAV → ROAD or STRAIGHT');
           speak('No back road route found');
-        } else if (kind === 'limit') {
-          nav.stuck = true;
-          showNav('!', 'Limit reached', "GraphHopper's free daily limit is used up", 'Tap NAV → ROAD or STRAIGHT');
-        } else if (!nav.route) showNav('!', 'No route', nav.mode === 'back' ? 'GraphHopper: ' + nav.lastErr : 'No signal, or no road there. Retrying…', 'Retrying every 15 s · or tap NAV → Straight line');
+        } else if (!nav.route) showNav('!', 'No route', nav.mode === 'back' ? 'Router: ' + nav.lastErr : 'No signal, or no road there. Retrying…', 'Retrying every 15 s · or tap NAV → Straight line');
         else showHint('Reroute failed, retrying');
       }
     } finally { routing = false; }
@@ -768,7 +797,6 @@
   function saveNav() { store.set(NAV_KEY, nav ? JSON.stringify({ dest: nav.dest, mode: nav.mode }) : ''); }
 
   function startNav(dest, mode) {
-    if (mode === 'back' && !store.get(GH_KEY)) { pendingBack = dest; openKeySheet(null); return; }
     nav = { dest, mode, route: null, lastIdx: 0, offCount: 0, lastRouteAt: 0, announced: {}, arrived: false };
     saveNav();
     speak(mode === 'road' ? 'Starting route' : mode === 'back' ? 'Starting back roads route' : 'Straight line navigation');
@@ -849,25 +877,6 @@
   $('pickRoad').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'road'); });
   $('pickBack').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'back'); });
   $('modeBack').addEventListener('click', () => { closeSheet('navSheet'); startNav(nav.dest, 'back'); });
-  function openKeySheet(msg) {
-    $('keyInput').value = store.get(GH_KEY) || '';
-    if (msg) $('keyMsg').dataset.err = msg;
-    const err = $('keyMsg').querySelector('.err');
-    if (err) err.remove();
-    if (msg) { const e = document.createElement('div'); e.className = 'err'; e.style.cssText = 'color:#e74c3c;font-weight:800;margin-top:8px'; e.textContent = msg; $('keyMsg').appendChild(e); }
-    closeSheet('navSheet'); closeSheet('pickSheet'); openSheet('keySheet');
-  }
-  $('keyEdit').addEventListener('click', () => openKeySheet(null));
-  $('keyCancel').addEventListener('click', () => { closeSheet('keySheet'); pendingBack = null; });
-  $('keySave').addEventListener('click', () => {
-    const k = $('keyInput').value.trim();
-    if (!k) { $('keyInput').focus(); return; }
-    store.set(GH_KEY, k);
-    closeSheet('keySheet');
-    const dest = pendingBack || (nav && nav.mode === 'back' ? nav.dest : null);
-    pendingBack = null;
-    if (dest) startNav(dest, 'back'); else showHint('Key saved');
-  });
   $('pickDirect').addEventListener('click', () => { closeSheet('pickSheet'); if (pending) startNav(pending, 'direct'); });
   $('pickCancel').addEventListener('click', () => { closeSheet('pickSheet'); pending = null; });
   $('navEndBtn').addEventListener('click', () => { endNav(); showHint('Navigation ended'); });
