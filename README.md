@@ -4,5 +4,5 @@ Phone dashboard for a Yamaha XT250. Open it on an iPhone, add it to the Home Scr
 
 Live at: https://jeffgibbs360.github.io/XT250-Dash/
 
-**Stage 1 (now):** GPS speed, trip, max, average moving speed, ride time, heading, altitude, clock, day/night mode, map with ride track, turn-by-turn navigation (road route, back roads only, or straight line).
+**Stage 1 (now):** GPS speed, trip, max, average moving speed, ride time, heading, altitude, clock, day/night mode, map with ride track, turn-by-turn navigation (road route, back roads only, or straight line), nearby search, Forest Service legal-trails layer (MVUM) with tap-for-details.
 **Stage 2 (planned):** ESP32 Bluetooth sensor box for gear indicator, battery voltage and oil temp.

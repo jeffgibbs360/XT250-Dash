@@ -84,6 +84,25 @@
   .mapStats .u { color:#bbb; font-size:15px; }
   .mapBtn { right:10px; border:0; padding:12px 16px; font-family:inherit; font-size:16px; font-weight:800; }
   #layerBtn { top:10px; }
+  .lbl2 { font-size:12px; font-weight:800; letter-spacing:1.5px; color:var(--dim); margin-top:4px; }
+  .toggle { display:flex; align-items:center; gap:12px; background:var(--tile); border-radius:14px; padding:14px; }
+  .toggle > div { flex:1; }
+  .tName { font-size:17px; font-weight:800; }
+  .tDesc { font-size:13px; color:var(--dim); margin-top:2px; }
+  .toggle input { display:none; }
+  .sw { width:52px; height:32px; border-radius:16px; background:#555; position:relative; flex:none; transition:background .2s; }
+  .sw::after { content:''; position:absolute; left:3px; top:3px; width:26px; height:26px; border-radius:50%; background:#fff; transition:left .2s; }
+  .toggle input:checked + .sw { background:#2ecc40; }
+  .toggle input:checked + .sw::after { left:23px; }
+  .trailCard { left:10px; right:10px; bottom:24px; padding:14px; display:flex; flex-direction:column; gap:6px; z-index:600; }
+  .tcTop { display:flex; align-items:flex-start; gap:8px; }
+  .tcName { flex:1; font-size:19px; font-weight:900; }
+  .tcX { background:rgba(255,255,255,.15); color:#fff; border:0; border-radius:10px; width:38px; height:38px; font-size:16px; flex:none; }
+  .tcSub { font-size:13px; color:#bbb; }
+  .tcMoto { font-size:18px; font-weight:800; }
+  .tcDetail { font-size:13px; color:#ccc; line-height:1.4; }
+  .trailCard .tcGo { height:52px; min-height:52px; flex:none; font-size:16px; margin-top:4px; }
+  .ov.trailCard { background:#111; }
   #recenterBtn { bottom:24px; background:var(--accent); color:#000; }
   .mapMsg { left:50%; top:50%; transform:translate(-50%,-50%); padding:14px 18px; font-size:17px; font-weight:700; text-align:center; }
   .maplibregl-ctrl-attrib { font-size:9px !important; }
@@ -193,7 +212,14 @@
     <div id="map"></div>
     <div class="ov mapSpeed"><div class="num" id="mSpeed">0</div><div class="mu">MPH</div></div>
     <div class="ov mapStats"><span class="num" id="mTrip">0.0</span><span class="u"> mi</span> &nbsp;<span class="num" id="mTime">0:00</span></div>
-    <button class="ov mapBtn" id="layerBtn">STREET</button>
+    <button class="ov mapBtn" id="layerBtn">LAYERS</button>
+    <div class="ov trailCard hidden" id="trailCard">
+      <div class="tcTop"><div class="tcName" id="tcName"></div><button class="tcX" id="tcClose">✕</button></div>
+      <div class="tcSub" id="tcSub"></div>
+      <div class="tcMoto" id="tcMoto"></div>
+      <div class="tcDetail" id="tcDetail"></div>
+      <button class="big go tcGo" id="tcGo">NAVIGATE HERE</button>
+    </div>
     <button class="ov mapBtn" id="navBtn">NAV</button>
     <button class="ov mapBtn hidden" id="recenterBtn">RECENTER</button>
     <div class="ov mapMsg hidden" id="mapMsg">Map needs a cell signal to load.<br>Speed and trip still work.</div>
@@ -223,6 +249,18 @@
     <div class="chips" id="chips"></div>
     <div class="results" id="results"></div>
     <div class="tip">Tip: on the map, press and hold anywhere to navigate there.</div>
+  </div>
+</div>
+
+<div class="sheet hidden" id="layerSheet">
+  <div class="sheetCard">
+    <div class="sheetHead"><b>Map layers</b><button id="layerClose">✕</button></div>
+    <div class="lbl2">MAP STYLE</div>
+    <div class="row" id="styleRow"></div>
+    <div class="lbl2">OVERLAYS</div>
+    <label class="toggle"><div><div class="tName">Legal trails &amp; forest roads</div>
+      <div class="tDesc">Official Forest Service map (MVUM). Zoom in to see them, tap a line for details.</div></div>
+      <input type="checkbox" id="mvumToggle"><span class="sw"></span></label>
   </div>
 </div>
 
@@ -301,12 +339,12 @@
   }
   function setLayer(i) {
     layerIdx = i; store.set(LAYER_KEY, String(i));
-    $('layerBtn').textContent = LAYERS[i].name;
+    renderStyleRow();
     if (!mapReady) return;
     if (map.getLayer('tiles')) map.removeLayer('tiles');
     if (map.getSource('tiles')) map.removeSource('tiles');
     map.addSource('tiles', { type:'raster', tiles: LAYERS[i].tiles, tileSize:256, maxzoom: LAYERS[i].maxzoom, attribution: LAYERS[i].attr });
-    map.addLayer({ id:'tiles', type:'raster', source:'tiles', paint: tilePaint(i) }, 'route');
+    map.addLayer({ id:'tiles', type:'raster', source:'tiles', paint: tilePaint(i) }, map.getLayer('mvum') ? 'mvum' : 'route');
   }
   function setTrack() {
     if (!mapReady) return;
@@ -336,8 +374,13 @@
     me = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' });
 
     map.on('load', () => {
-      ['route', 'direct', 'track', 'dest'].forEach(id => map.addSource(id, { type:'geojson', data: EMPTY_FC }));
+      ['route', 'direct', 'track', 'dest', 'trailhl'].forEach(id => map.addSource(id, { type:'geojson', data: EMPTY_FC }));
       const round = { 'line-join':'round', 'line-cap':'round' };
+      // Forest Service legal-use map, drawn by their server as transparent image tiles
+      map.addSource('mvum', { type:'raster', tileSize:256, minzoom:10, attribution:'USDA Forest Service MVUM',
+        tiles:[MVUM + '/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=512,512&dpi=192&format=png32&transparent=true&layers=show:1,2&f=image'] });
+      map.addLayer({ id:'mvum', type:'raster', source:'mvum', minzoom:10.5, layout:{ visibility: mvumOn ? 'visible' : 'none' } });
+      map.addLayer({ id:'trailhl', type:'line', source:'trailhl', layout: round, paint:{ 'line-color':'#00e5ff', 'line-width':9, 'line-opacity':.55 } });
       map.addLayer({ id:'route', type:'line', source:'route', layout: round, paint:{ 'line-color':'#1e90ff', 'line-width':9, 'line-opacity':.85 } });
       map.addLayer({ id:'direct', type:'line', source:'direct', layout: round, paint:{ 'line-color':'#e0245e', 'line-width':4, 'line-dasharray':[2, 2] } });
       map.addLayer({ id:'track', type:'line', source:'track', layout: round, paint:{ 'line-color':'#ffb000', 'line-width':5, 'line-opacity':.95 } });
@@ -348,6 +391,7 @@
       drawNav();
       updateMap(true);
     });
+    map.on('click', e => trailTap(e.lngLat));
     // user moving the map stops auto-follow (programmatic camera moves have no originalEvent)
     map.on('dragstart', manualMove);
     map.on('rotatestart', e => { if (e.originalEvent) manualMove(); });
@@ -371,6 +415,119 @@
       if (lpAt && Math.hypot(e.touches[0].clientX - lpAt[0], e.touches[0].clientY - lpAt[1]) > 10) clearTimeout(lpTimer);
     }, { passive: true });
     ['touchend', 'touchcancel'].forEach(ev => box.addEventListener(ev, () => clearTimeout(lpTimer), { passive: true }));
+  }
+
+  // ---------- Forest Service legal trails (MVUM) ----------
+  const MVUM = 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_MVUM_01/MapServer';
+  const MVUM_KEY = 'xt250dash.mvum';
+  let mvumOn = store.get(MVUM_KEY) === '1', tapSeq = 0, tcDest = null;
+
+  function setMvum(on) {
+    mvumOn = on; store.set(MVUM_KEY, on ? '1' : '0');
+    $('mvumToggle').checked = on;
+    if (mapReady) map.setLayoutProperty('mvum', 'visibility', on ? 'visible' : 'none');
+    if (!on) closeTrailCard();
+    if (on && mapReady && map.getZoom() < 10.5) showHint('Zoom in to see trails');
+  }
+
+  // "05/01-11/30" or "01/01-03/31,06/15-12/31"  ->  is today inside one of the ranges?
+  function openToday(dates) {
+    if (!dates) return null;
+    const rngs = String(dates).match(/\d{1,2}\/\d{1,2}\s*-\s*\d{1,2}\/\d{1,2}/g);
+    if (!rngs) return null;
+    const now = new Date(), today = (now.getMonth() + 1) * 100 + now.getDate();
+    return rngs.some(r => {
+      const [a, b] = r.split('-').map(x => { const [m, d] = x.trim().split('/').map(Number); return m * 100 + d; });
+      return a <= b ? today >= a && today <= b : today >= a || today <= b;   // ranges can wrap past New Year
+    });
+  }
+  const isOpenVal = v => !!v && /open|yes|^y$/i.test(String(v).trim());
+
+  async function mvumQuery(layer, ll, tolM) {
+    const url = `${MVUM}/${layer}/query?geometry=${ll.lng},${ll.lat}&geometryType=esriGeometryPoint&inSR=4326` +
+      `&distance=${Math.round(tolM)}&units=esriSRUnit_Meter&spatialRel=esriSpatialRelIntersects&outFields=*` +
+      `&returnGeometry=true&outSR=4326&f=geojson`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    return (j.features || []).map(f => ({ f, layer }));
+  }
+
+  async function trailTap(ll) {
+    if (!mvumOn || !mapReady || map.getZoom() < 10.5) return;
+    const seq = ++tapSeq;
+    // ~18 screen pixels of slop, in meters at this zoom
+    const tol = Math.min(250, Math.max(8, 18 * 156543 * Math.cos(ll.lat * Math.PI / 180) / Math.pow(2, map.getZoom())));
+    let hits = [];
+    try {
+      const [roads, trails] = await Promise.all([mvumQuery(1, ll, tol), mvumQuery(2, ll, tol)]);
+      hits = trails.concat(roads);   // prefer trails when both are under your finger
+    } catch (e) {
+      if (seq === tapSeq) showHint('Trail info needs a signal');
+      return;
+    }
+    if (seq !== tapSeq) return;
+    if (!hits.length) { closeTrailCard(); return; }
+    showTrailCard(hits[0].f, hits[0].layer, ll);
+  }
+
+  function showTrailCard(f, layer, ll) {
+    const p = {};
+    Object.keys(f.properties || {}).forEach(k => { p[k.toLowerCase()] = f.properties[k]; });
+    const isTrail = layer === 2;
+    const name = (p.name && String(p.name).trim()) || (isTrail ? 'Forest Service trail' : 'Forest Service road');
+    $('tcName').textContent = name;
+    $('tcSub').textContent = [isTrail ? 'Trail' : 'Road', p.id ? '#' + p.id : '', p.forestname, p.districtname]
+      .filter(Boolean).join(' · ');
+
+    // motorcycle status
+    let moto, motoDates = null;
+    if (isTrail || p.motorcycle != null) {
+      const allowed = isOpenVal(p.motorcycle);
+      motoDates = p.motorcycle_datesopen;
+      const today = allowed ? openToday(motoDates) : false;
+      moto = !allowed ? '⛔ Not open to motorcycles'
+           : today === false ? '⛔ Closed to motorcycles today'
+           : today === true ? '✅ Open to motorcycles today'
+           : '✅ Open to motorcycles';
+    } else {
+      // roads: street-legal bikes may use roads open to highway-legal vehicles
+      const sym = String(p.mvum_symbol_name || p.symbol || '');
+      const anyOpen = ['passengervehicle', 'highclearancevehicle', 'motorcycle'].some(k => isOpenVal(p[k]));
+      motoDates = p.passengervehicle_datesopen || p.highclearancevehicle_datesopen || p.motorcycle_datesopen;
+      const today = anyOpen ? openToday(motoDates) : null;
+      moto = today === false ? '⛔ Closed today' : anyOpen ? '✅ Open to street-legal vehicles' + (today ? ' today' : '')
+           : sym ? 'ℹ️ ' + sym : 'ℹ️ See details below';
+    }
+    $('tcMoto').textContent = moto;
+    const bits = [];
+    if (motoDates) bits.push('Open dates: ' + motoDates);
+    if (p.seasonal && /seasonal/i.test(p.seasonal)) bits.push('Seasonal route');
+    if (p.mvum_symbol_name) bits.push(p.mvum_symbol_name);
+    if (p.trailclass) bits.push('Trail class ' + p.trailclass);
+    if (isOpenVal(p.atv)) bits.push('ATVs allowed');
+    if (p.gis_miles) bits.push((+p.gis_miles).toFixed(1) + ' mi segment');
+    bits.push('Always check posted signs.');
+    $('tcDetail').textContent = bits.join(' · ');
+    tcDest = { lat: ll.lat, lng: ll.lng, name };
+    const g = f.geometry;
+    map.getSource('trailhl').setData(g ? { type:'Feature', properties:{}, geometry: g } : EMPTY_FC);
+    $('trailCard').classList.remove('hidden');
+  }
+  function closeTrailCard() {
+    $('trailCard').classList.add('hidden');
+    if (mapReady) map.getSource('trailhl').setData(EMPTY_FC);
+  }
+
+  function renderStyleRow() {
+    const row = $('styleRow');
+    row.innerHTML = '';
+    LAYERS.forEach((L2, i) => {
+      const b = document.createElement('button');
+      b.className = 'big' + (i === layerIdx ? ' sel' : ''); b.type = 'button'; b.textContent = L2.name;
+      b.addEventListener('click', () => setLayer(i));
+      row.appendChild(b);
+    });
   }
 
   // Camera: north-up flat map normally; heading-up, tilted, zoomed-in view while navigating.
@@ -1154,13 +1311,18 @@
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   $('viewBtn').addEventListener('click', () => setView(!document.body.classList.contains('mapMode')));
-  $('layerBtn').addEventListener('click', () => setLayer((layerIdx + 1) % LAYERS.length));
+  $('layerBtn').addEventListener('click', () => { renderStyleRow(); $('mvumToggle').checked = mvumOn; $('layerSheet').classList.remove('hidden'); });
+  $('layerClose').addEventListener('click', () => $('layerSheet').classList.add('hidden'));
+  $('layerSheet').addEventListener('click', e => { if (e.target === $('layerSheet')) $('layerSheet').classList.add('hidden'); });
+  $('mvumToggle').addEventListener('change', e => setMvum(e.target.checked));
+  $('tcClose').addEventListener('click', closeTrailCard);
+  $('tcGo').addEventListener('click', () => { if (tcDest) { const d = tcDest; closeTrailCard(); pickDest(d); } });
   $('recenterBtn').addEventListener('click', () => {
     follow = true; $('recenterBtn').classList.add('hidden');
     updateMap(true);
   });
   window.addEventListener('resize', () => { if (map) setTimeout(() => { map.resize(); updateMap(true); }, 150); });
-  $('layerBtn').textContent = LAYERS[layerIdx].name;
+  renderStyleRow(); $('mvumToggle').checked = mvumOn;
   // load the map library in the background so the dash still opens instantly with no signal
   (function loadMapLib() {
     const css = document.createElement('link');
